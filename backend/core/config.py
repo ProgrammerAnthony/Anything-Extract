@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     
     # 应用配置
     api_host: str = "0.0.0.0"
-    api_port: int = 8000
-    frontend_url: str = "http://localhost:3000"
+    api_port: int = 8888
+    frontend_url: str = "http://localhost:3001"
     debug: bool = False
     
     # 数据库

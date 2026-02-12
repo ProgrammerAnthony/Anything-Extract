@@ -18,6 +18,8 @@ from utils.logging import retrieval_logger
 
 class RetrievalService:
     """检索服务"""
+
+    SUPPORTED_METHODS = {"basic"}
     
     def __init__(self):
         self.embedding_provider = OllamaEmbeddingProvider(
@@ -43,21 +45,15 @@ class RetrievalService:
     ) -> List[Dict[str, Any]]:
         """执行检索"""
         start_time = time.time()
+        if method not in self.SUPPORTED_METHODS:
+            retrieval_logger.warning(f"检索方法 {method} 不支持，自动回退到 basic")
+            method = "basic"
+
         retrieval_logger.info(f"开始检索，查询: {query[:50]}..., 方法: {method}, top_k: {top_k}, 文档ID: {document_id}")
         
         result = None
         if method == "basic":
             result = await self._basic_retrieval(query, document_id, top_k)
-        elif method == "multi_query":
-            result = await self._multi_query_retrieval(query, document_id, top_k)
-        elif method == "hyde":
-            result = await self._hyde_retrieval(query, document_id, top_k)
-        elif method == "parent_document":
-            result = await self._parent_document_retrieval(query, document_id, top_k)
-        elif method == "rerank":
-            result = await self._rerank_retrieval(query, document_id, top_k)
-        elif method == "bm25":
-            result = await self._bm25_retrieval(query, document_id, top_k)
         else:
             result = await self._basic_retrieval(query, document_id, top_k)
         
@@ -90,58 +86,3 @@ class RetrievalService:
         
         return results
     
-    async def _multi_query_retrieval(
-        self,
-        query: str,
-        document_id: str,
-        top_k: int
-    ) -> List[Dict[str, Any]]:
-        """Multi-Query Retrieval"""
-        # TODO: 实现 Multi-Query Retrieval
-        # 使用 LLM 生成多个相关查询，然后合并结果
-        return await self._basic_retrieval(query, document_id, top_k)
-    
-    async def _hyde_retrieval(
-        self,
-        query: str,
-        document_id: str,
-        top_k: int
-    ) -> List[Dict[str, Any]]:
-        """HyDE Retrieval"""
-        # TODO: 实现 HyDE
-        # 生成假设性答案，然后对假设答案进行 embedding 和检索
-        return await self._basic_retrieval(query, document_id, top_k)
-    
-    async def _parent_document_retrieval(
-        self,
-        query: str,
-        document_id: str,
-        top_k: int
-    ) -> List[Dict[str, Any]]:
-        """Parent Document Retrieval"""
-        # TODO: 实现 Parent Document Retrieval
-        # 使用小 chunk 检索，返回大 chunk（parent）
-        return await self._basic_retrieval(query, document_id, top_k)
-    
-    async def _rerank_retrieval(
-        self,
-        query: str,
-        document_id: str,
-        top_k: int
-    ) -> List[Dict[str, Any]]:
-        """RERANK Retrieval"""
-        # TODO: 实现 RERANK
-        # 先进行基础检索，然后使用交叉编码器重排序
-        return await self._basic_retrieval(query, document_id, top_k)
-    
-    async def _bm25_retrieval(
-        self,
-        query: str,
-        document_id: str,
-        top_k: int
-    ) -> List[Dict[str, Any]]:
-        """BM25 Retrieval"""
-        # TODO: 实现 BM25 检索
-        # 基于关键词的检索
-        return await self._basic_retrieval(query, document_id, top_k)
-

@@ -79,6 +79,8 @@ class ExtractionRequest(BaseModel):
     retrieval_method: Optional[str] = Field("basic", description="检索方法")
     top_k: Optional[int] = Field(5, ge=1, le=20, description="Top-K 结果数")
     rerank: Optional[bool] = Field(False, description="是否启用重排序")
+    rag_enhancement_enabled: Optional[bool] = Field(False, description="是否启用RAG标签增强")
+    rag_tag_enhancements: Optional[Dict[str, Any]] = Field(None, description="标签增强问题数据")
 
 
 class ExtractionResult(BaseModel):
@@ -95,6 +97,15 @@ class MultiTagExtractionRequest(BaseModel):
     retrieval_method: Optional[str] = Field("basic", description="检索方法")
     top_k: Optional[int] = Field(5, ge=1, le=20, description="Top-K 结果数")
     rerank: Optional[bool] = Field(False, description="是否启用重排序")
+    rag_enhancement_enabled: Optional[bool] = Field(False, description="是否启用RAG标签增强")
+    rag_tag_enhancements: Optional[Dict[str, Any]] = Field(None, description="标签增强问题数据")
+
+
+class RAGTagEnhancementRequest(BaseModel):
+    """标签RAG增强请求"""
+    tag_config_ids: List[str] = Field(..., description="标签配置 ID 列表")
+    question_count: Optional[int] = Field(3, ge=1, le=10, description="每个标签生成问题数")
+    strategy: Optional[str] = Field("llm_question_v1", description="增强策略")
 
 
 class BatchExtractionRequest(BaseModel):

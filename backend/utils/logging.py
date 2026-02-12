@@ -12,9 +12,10 @@ extract_log_folder = './logs/extract_logs'
 document_log_folder = './logs/document_logs'
 embed_log_folder = './logs/embed_logs'
 retrieval_log_folder = './logs/retrieval_logs'
+rag_log_folder = './logs/rag_logs'
 
 # 确保日志文件夹存在
-for folder in [debug_log_folder, extract_log_folder, document_log_folder, embed_log_folder, retrieval_log_folder]:
+for folder in [debug_log_folder, extract_log_folder, document_log_folder, embed_log_folder, retrieval_log_folder, rag_log_folder]:
     Path(folder).mkdir(parents=True, exist_ok=True)
 
 # 创建 logger 实例
@@ -23,9 +24,10 @@ extract_logger = logging.getLogger('extract_logger')
 document_logger = logging.getLogger('document_logger')
 embed_logger = logging.getLogger('embed_logger')
 retrieval_logger = logging.getLogger('retrieval_logger')
+rag_logger = logging.getLogger('rag_logger')
 
 # 设置日志级别
-for logger in [debug_logger, extract_logger, document_logger, embed_logger, retrieval_logger]:
+for logger in [debug_logger, extract_logger, document_logger, embed_logger, retrieval_logger, rag_logger]:
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
@@ -44,6 +46,9 @@ embed_handler = ConcurrentRotatingFileHandler(
 )
 retrieval_handler = ConcurrentRotatingFileHandler(
     os.path.join(retrieval_log_folder, "retrieval.log"), "a", 64 * 1024 * 1024, 256
+)
+rag_handler = ConcurrentRotatingFileHandler(
+    os.path.join(rag_log_folder, "rag.log"), "a", 64 * 1024 * 1024, 256
 )
 
 # 定义日志格式
@@ -78,4 +83,8 @@ embed_logger.addHandler(console_handler)  # 同时输出到控制台
 retrieval_handler.setFormatter(simple_formatter)
 retrieval_logger.addHandler(retrieval_handler)
 retrieval_logger.addHandler(console_handler)  # 同时输出到控制台
+
+rag_handler.setFormatter(formatter)
+rag_logger.addHandler(rag_handler)
+rag_logger.addHandler(console_handler)  # 同时输出到控制台
 

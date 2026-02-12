@@ -40,6 +40,11 @@ interface ExtractionResult {
     tag_id: string;
     tag_name: string;
     result: any;
+    query_bundle?: {
+      base_query?: string;
+      enhanced_questions?: string[];
+      queries?: string[];
+    };
     retrieval_results: any[];
     sources: any[];
   }>;
@@ -63,6 +68,15 @@ export default function DocumentDetailPage() {
   const [extractionResult, setExtractionResult] = useState<ExtractionResult | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [ragEnhancementEnabled, setRagEnhancementEnabled] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
+  const [tagEnhancements, setTagEnhancements] = useState<Record<string, {
+    tag_id: string;
+    tag_name: string;
+    base_query: string;
+    questions: string[];
+    strategy?: string;
+  }>>({});
 
   useEffect(() => {
     loadDocument();
@@ -98,6 +112,31 @@ export default function DocumentDetailPage() {
     }
   };
 
+  const refreshTagEnhancements = async () => {
+    if (selectedTagIds.length === 0) {
+      alert('请先选择至少一个标签');
+      return;
+    }
+
+    setEnhancing(true);
+    try {
+      const response = await extractApi.enhanceTagQueries({
+        tag_config_ids: selectedTagIds,
+        question_count: 3,
+        strategy: 'llm_question_v1',
+      });
+
+      if (response.data.success) {
+        setTagEnhancements(response.data.data.tag_enhancements || {});
+      }
+    } catch (error) {
+      console.error('刷新RAG增强问题失败:', error);
+      alert('刷新RAG增强问题失败');
+    } finally {
+      setEnhancing(false);
+    }
+  };
+
   const handleExtract = async () => {
     if (selectedTagIds.length === 0) {
       alert('请至少选择一个标签');
@@ -112,12 +151,23 @@ export default function DocumentDetailPage() {
     setExtracting(true);
     setExtractionResult(null);
 
+    const requestEnhancements = ragEnhancementEnabled
+      ? selectedTagIds.reduce((acc, tagId) => {
+          if (tagEnhancements[tagId]) {
+            acc[tagId] = tagEnhancements[tagId];
+          }
+          return acc;
+        }, {} as Record<string, any>)
+      : undefined;
+
     try {
       const response = await extractApi.multiTagExtract({
         tag_config_ids: selectedTagIds,
         document_id: documentId,
         retrieval_method: 'basic',
         top_k: 5,
+        rag_enhancement_enabled: ragEnhancementEnabled,
+        rag_tag_enhancements: requestEnhancements,
       });
 
       if (response.data.success) {
@@ -140,6 +190,19 @@ export default function DocumentDetailPage() {
         : [...prev, tagId]
     );
   };
+
+  useEffect(() => {
+    const selectedSet = new Set(selectedTagIds);
+    setTagEnhancements((prev) => {
+      const next: Record<string, any> = {};
+      Object.keys(prev).forEach((tagId) => {
+        if (selectedSet.has(tagId)) {
+          next[tagId] = prev[tagId];
+        }
+      });
+      return next;
+    });
+  }, [selectedTagIds]);
 
   if (loading) {
     return <div className="p-8">加载中...</div>;
@@ -227,6 +290,54 @@ export default function DocumentDetailPage() {
                   </Link>
                 </div>
               )}
+
+              <div className="mb-4 rounded-lg border p-3 bg-white">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={ragEnhancementEnabled}
+                    onChange={(e) => setRagEnhancementEnabled(e.target.checked)}
+                  />
+                  启用RAG标签增强（每个标签额外3个问题）
+                </label>
+                {ragEnhancementEnabled && (
+                  <div className="mt-3 space-y-3">
+                    <button
+                      type="button"
+                      onClick={refreshTagEnhancements}
+                      disabled={enhancing || selectedTagIds.length === 0}
+                      className="px-3 py-1.5 text-sm rounded bg-gray-100 hover:bg-gray-200 disabled:bg-gray-200"
+                    >
+                      {enhancing ? '生成中...' : '刷新增强问题'}
+                    </button>
+
+                    {selectedTagIds.length > 0 && (
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {selectedTagIds.map((tagId) => {
+                          const tag = tags.find((item) => item.id === tagId);
+                          const enhancement = tagEnhancements[tagId];
+                          return (
+                            <div key={tagId} className="p-2 rounded border bg-gray-50">
+                              <div className="text-xs font-semibold text-gray-700 mb-1">
+                                标签: {tag?.name || tagId}
+                              </div>
+                              {!enhancement || !enhancement.questions?.length ? (
+                                <div className="text-xs text-gray-500">暂无增强问题，点击“刷新增强问题”生成</div>
+                              ) : (
+                                <ul className="text-xs text-gray-700 list-disc pl-4 space-y-1">
+                                  {enhancement.questions.map((question, idx) => (
+                                    <li key={`${tagId}-${idx}`}>{question}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <button
                 onClick={handleExtract}
@@ -325,6 +436,20 @@ export default function DocumentDetailPage() {
                         </div>
                         
                         {/* 该标签的检索结果 */}
+                        {tagResult.query_bundle && (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">Query Bundle</h4>
+                            <div className="bg-gray-50 p-3 rounded text-xs text-gray-700 space-y-1">
+                              <div>Base: {tagResult.query_bundle.base_query || '-'}</div>
+                              {Array.isArray(tagResult.query_bundle.enhanced_questions) && tagResult.query_bundle.enhanced_questions.length > 0 && (
+                                <div>
+                                  Enhanced: {tagResult.query_bundle.enhanced_questions.join(' | ')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
                         {tagResult.retrieval_results && tagResult.retrieval_results.length > 0 && (
                           <div className="mb-4">
                             <h4 className="text-sm font-medium text-gray-700 mb-2">

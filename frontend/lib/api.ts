@@ -54,6 +54,8 @@ export const extractApi = {
     retrieval_method?: string;
     top_k?: number;
     rerank?: boolean;
+    rag_enhancement_enabled?: boolean;
+    rag_tag_enhancements?: Record<string, any>;
   }) => api.post('/extract', data),
   extractStream: (data: {
     tag_config_id: string;
@@ -61,6 +63,8 @@ export const extractApi = {
     retrieval_method?: string;
     top_k?: number;
     rerank?: boolean;
+    rag_enhancement_enabled?: boolean;
+    rag_tag_enhancements?: Record<string, any>;
   }) => {
     return fetch('/api/extract/stream', {
       method: 'POST',
@@ -76,7 +80,14 @@ export const extractApi = {
     retrieval_method?: string;
     top_k?: number;
     rerank?: boolean;
+    rag_enhancement_enabled?: boolean;
+    rag_tag_enhancements?: Record<string, any>;
   }) => api.post('/extract/multi-tags', data),
+  enhanceTagQueries: (data: {
+    tag_config_ids: string[];
+    question_count?: number;
+    strategy?: string;
+  }) => api.post('/extract/rag/enhance-tags', data),
   batchExtract: (data: {
     tag_config_id: string;
     document_ids: string[];

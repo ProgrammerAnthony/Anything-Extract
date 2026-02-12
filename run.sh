@@ -673,7 +673,7 @@ sleep 3
 # 启动前端
 echo "启动前端服务..."
 cd frontend
-npm run dev &
+PORT=3001 npm run dev &
 FRONTEND_PID=$!
 cd ..
 
@@ -685,8 +685,8 @@ echo ""
 echo "后端 PID: $BACKEND_PID"
 echo "前端 PID: $FRONTEND_PID"
 echo ""
-echo "后端服务: http://localhost:8000"
-echo "前端服务: http://localhost:3000"
+echo "后端服务: http://localhost:8888"
+echo "前端服务: http://localhost:3001"
 echo ""
 echo "按 Ctrl+C 停止服务"
 echo ""
