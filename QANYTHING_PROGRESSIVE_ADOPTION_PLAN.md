@@ -509,3 +509,30 @@ anything-extract/
 - Architecture sync completed in `ARCHITECTURE.md` (Stage 1 update + supported type changes).
 - Storage and vector architecture unchanged: SQLite + LanceDB retained.
 
+
+
+### Stage 2 Execution Record (2026-02-13)
+
+- Status: completed.
+- Backend queue ingestion adopted with QAnything-style state machine (`queued -> processing -> completed/failed`) and retry flow.
+- Added SQLite ingest job model in `backend/core/database.py`:
+  - `document_ingest_jobs(id, document_id, status, attempts, max_attempts, error_msg, worker_id, processing_mode, started_at, finished_at, created_at, updated_at)`.
+- Added Stage 2 services:
+  - `backend/services/document_ingest_service.py` (shared parse/split/embed execution)
+  - `backend/services/ingest_queue_service.py` (enqueue/claim/requeue/retry orchestration)
+- Added independent worker process:
+  - `backend/workers/ingest_worker.py`.
+- Upload API now supports processing mode switch (`queue` / `immediate`):
+  - `backend/app/api/documents.py`.
+- Knowledge base/document list payload now includes `ingest_job` snapshot for frontend queue status rendering:
+  - `backend/app/api/documents.py`
+  - `backend/app/api/knowledge_bases.py`.
+- Added retry endpoint:
+  - `POST /api/documents/{document_id}/retry`.
+- Frontend Stage 2 UX implemented:
+  - upload dialog adds processing-mode toggle
+  - knowledge-base document page adds optimistic append + active polling + retry action
+  - uploaded documents appear immediately without full-page refresh.
+- `run.sh` now supports one-command local startup with worker orchestration:
+  - default starts backend + frontend + ingest worker
+  - supports `--without-ingest-server` / `--immediate-mode` fallback options.

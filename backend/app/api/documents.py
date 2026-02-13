@@ -1,27 +1,36 @@
-"""文档管理 API"""
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy.orm import Session
-from typing import Optional
-import os
-import shutil
-import json
-from pathlib import Path
-import traceback
+"""Document management API."""
+from __future__ import annotations
 
-from core.database import get_db, Document, KnowledgeBase, SessionLocal, ExtractionResult, DocumentVector
-from core.config import settings
-from app.models.schemas import (
-    DocumentResponse,
-    DocumentStatusResponse,
-    ApiResponse
-)
-from services.document_service import DocumentService
-from services.embedding_service import EmbeddingService
-from providers.vector_db.lancedb import LanceDBProvider
-from utils.logging import document_logger, debug_logger
 import asyncio
+import json
+import os
+from pathlib import Path
+import shutil
+import traceback
+import uuid
+from typing import Dict, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from app.models.schemas import ApiResponse, DocumentStatusResponse
+from core.config import settings
+from core.database import (
+    Document,
+    DocumentIngestJob,
+    DocumentVector,
+    ExtractionResult,
+    KnowledgeBase,
+    SessionLocal,
+    get_db,
+)
+from providers.vector_db.lancedb import LanceDBProvider
+from services.document_ingest_service import DocumentIngestService
+from services.ingest_queue_service import IngestQueueService
+from utils.logging import debug_logger, document_logger
 
 router = APIRouter()
+ingest_queue_service = IngestQueueService()
 
 SUPPORTED_UPLOAD_EXTENSIONS = {"pdf", "docx", "txt", "md", "csv", "json", "xlsx", "pptx", "eml"}
 EXTENSION_MIME_TYPES = {
@@ -53,132 +62,118 @@ def _resolve_upload_file_type(file: UploadFile) -> str:
     expected_mimes = EXTENSION_MIME_TYPES.get(file_extension, set())
     if content_type and content_type not in expected_mimes and content_type != "application/octet-stream":
         document_logger.warning(
-            f"MIME mismatch for file upload: {file.filename}, extension={file_extension}, content_type={content_type}"
+            "MIME mismatch for file upload: %s, extension=%s, content_type=%s",
+            file.filename,
+            file_extension,
+            content_type,
         )
 
     return file_extension
+
+
+def _serialize_document(document: Document, ingest_job: Optional[DocumentIngestJob] = None) -> Dict[str, object]:
+    metadata = json.loads(document.document_metadata) if document.document_metadata else None
+    if ingest_job is None:
+        ingest_job = document.ingest_job
+
+    return {
+        "id": document.id,
+        "filename": document.filename,
+        "file_type": document.file_type,
+        "status": document.status,
+        "metadata": metadata,
+        "created_at": document.created_at.isoformat() if hasattr(document.created_at, "isoformat") else str(document.created_at),
+        "updated_at": document.updated_at.isoformat() if hasattr(document.updated_at, "isoformat") else str(document.updated_at),
+        "ingest_job": ingest_queue_service.serialize_job(ingest_job),
+    }
+
+
+async def _process_document_immediate(document_id: str) -> None:
+    db_session = SessionLocal()
+    try:
+        document = db_session.query(Document).filter(Document.id == document_id).first()
+        if not document:
+            document_logger.error("Document not found for immediate ingest: %s", document_id)
+            return
+
+        ingest_service = DocumentIngestService()
+        await ingest_service.ingest_document(db_session, document)
+        db_session.commit()
+        document_logger.info("Immediate ingest completed: %s", document_id)
+    except Exception as exc:  # noqa: BLE001
+        db_session.rollback()
+        error_msg = f"Immediate ingest failed: {exc}\n{traceback.format_exc()}"
+        document_logger.error(error_msg)
+        debug_logger.error(error_msg)
+
+        try:
+            document = db_session.query(Document).filter(Document.id == document_id).first()
+            if document:
+                document.status = "failed"
+                db_session.commit()
+        except Exception as mark_exc:  # noqa: BLE001
+            document_logger.error("Failed to mark immediate ingest status: %s", mark_exc)
+    finally:
+        db_session.close()
 
 
 @router.post("/upload", response_model=ApiResponse)
 async def upload_document(
     file: UploadFile = File(...),
     knowledge_base_id: str = Form(...),
-    db: Session = Depends(get_db)
+    processing_mode: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
 ):
-    """上传文档"""
-    # 验证知识库存在
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == knowledge_base_id).first()
     if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
-    
-    # Stage 1: validate and normalize upload extension
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+
     file_type = _resolve_upload_file_type(file)
 
-    # Save file
+    try:
+        mode = ingest_queue_service.normalize_mode(processing_mode)
+    except ValueError as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     upload_path = Path(settings.uploads_path)
     upload_path.mkdir(parents=True, exist_ok=True)
-    
-    file_path = upload_path / file.filename
+
+    safe_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    file_path = upload_path / safe_filename
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    
-    # Create document record
-    document_logger.info(f"开始上传文档: {file.filename}, 知识库ID: {knowledge_base_id}")
+
+    initial_status = "queued" if mode == "queue" else "processing"
     document = Document(
         knowledge_base_id=knowledge_base_id,
         filename=file.filename,
         file_type=file_type,
         file_path=str(file_path),
-        json_path="",  # 将在处理完成后更新
-        status="processing"
+        json_path="",
+        status=initial_status,
     )
     db.add(document)
+    db.flush()
+
+    ingest_job = None
+    if mode == "queue":
+        ingest_job = ingest_queue_service.enqueue_document(db, document.id, processing_mode=mode)
+
     db.commit()
     db.refresh(document)
-    document_logger.info(f"文档记录已创建: {document.id}, 文件名: {file.filename}, 状态: processing")
-    
-    # 异步处理文档
-    async def process_document_task():
-        db_session = SessionLocal()
-        try:
-            # 重新获取文档对象（在新会话中）
-            doc = db_session.query(Document).filter(Document.id == document.id).first()
-            if not doc:
-                document_logger.error(f"文档不存在: {document.id}")
-                return
-            
-            document_logger.info(f"开始处理文档任务: {doc.filename} (ID: {doc.id})")
-            
-            doc_service = DocumentService()
-            embedding_service = EmbeddingService()
-            
-            # 处理文档
-            document_logger.info(f"步骤1/3: 解析和分块文档: {doc.filename}")
-            result = await doc_service.process_document(doc.file_path, file_type)
-            
-            # 更新文档记录
-            doc.json_path = result["json_path"]
-            doc.document_metadata = json.dumps(result["document"].get("metadata", {}))
-            db_session.commit()
-            document_logger.info(f"步骤2/3: 文档解析完成，保存JSON: {doc.json_path}")
-            
-            # 提取所有chunks用于向量化（包含页面信息）
-            all_chunks_data = []
-            for page in result["document"]["pages"]:
-                for chunk_data in page["chunks"]:
-                    all_chunks_data.append({
-                        "chunk_id": chunk_data["chunk_id"],
-                        "content": chunk_data["content"],
-                        "page_number": chunk_data["page_number"],
-                        "chunk_index": chunk_data["chunk_index"]
-                    })
-            
-            # 向量化
-            document_logger.info(f"步骤3/3: 开始向量化，chunks数量: {len(all_chunks_data)}")
-            await embedding_service.embed_document(
-                document_id=doc.id,
-                chunks_data=all_chunks_data,
-                metadata={"document_id": doc.id}
-            )
-            
-            doc.status = "completed"
-            db_session.commit()
-            document_logger.info(f"文档处理成功: {doc.filename} (ID: {doc.id})")
-        except Exception as e:
-            error_msg = f"文档处理失败: {str(e)}\n{traceback.format_exc()}"
-            document_logger.error(error_msg)
-            debug_logger.error(error_msg)
-            
-            # 更新文档状态为失败
-            try:
-                doc = db_session.query(Document).filter(Document.id == document.id).first()
-                if doc:
-                    doc.status = "failed"
-                    db_session.commit()
-            except Exception as db_error:
-                document_logger.error(f"更新文档状态失败: {db_error}")
-        finally:
-            db_session.close()
-    
-    # 启动后台任务
-    asyncio.create_task(process_document_task())
-    
-    doc_dict = {
-        "id": document.id,
-        "filename": document.filename,
-        "file_type": document.file_type,
-        "status": document.status,
-        "metadata": None,
-        "created_at": document.created_at.isoformat() if hasattr(document.created_at, 'isoformat') else str(document.created_at),
-        "updated_at": document.updated_at.isoformat() if hasattr(document.updated_at, 'isoformat') else str(document.updated_at)
-    }
-    
-    document_logger.info(f"文档上传接口返回成功，文档ID: {document.id}, 文件名: {document.filename}, 状态: {document.status}")
-    
+    if ingest_job:
+        db.refresh(ingest_job)
+
+    if mode == "immediate":
+        asyncio.create_task(_process_document_immediate(document.id))
+        message = "Upload accepted, document is processing in background"
+    else:
+        message = "Upload accepted, document queued for worker"
+
     return ApiResponse(
         success=True,
-        data={"document": doc_dict},
-        message="文档上传成功，正在后台处理"
+        data={"document": _serialize_document(document, ingest_job), "processing_mode": mode},
+        message=message,
     )
 
 
@@ -188,33 +183,25 @@ async def get_documents(
     page_size: int = 20,
     status: Optional[str] = None,
     knowledge_base_id: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """获取文档列表"""
     query = db.query(Document)
-    
     if knowledge_base_id:
         query = query.filter(Document.knowledge_base_id == knowledge_base_id)
-    
     if status:
         query = query.filter(Document.status == status)
-    
+
     total = query.count()
-    documents = query.offset((page - 1) * page_size).limit(page_size).all()
-    
-    import json
-    docs_list = []
-    for doc in documents:
-        docs_list.append({
-            "id": doc.id,
-            "filename": doc.filename,
-            "file_type": doc.file_type,
-            "status": doc.status,
-            "metadata": json.loads(doc.document_metadata) if doc.document_metadata else None,
-            "created_at": doc.created_at.isoformat() if hasattr(doc.created_at, 'isoformat') else str(doc.created_at),
-            "updated_at": doc.updated_at.isoformat() if hasattr(doc.updated_at, 'isoformat') else str(doc.updated_at)
-        })
-    
+    documents = query.order_by(Document.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    document_ids = [doc.id for doc in documents]
+    jobs_map: Dict[str, DocumentIngestJob] = {}
+    if document_ids:
+        jobs = db.query(DocumentIngestJob).filter(DocumentIngestJob.document_id.in_(document_ids)).all()
+        jobs_map = {job.document_id: job for job in jobs}
+
+    docs_list = [_serialize_document(doc, jobs_map.get(doc.id)) for doc in documents]
+
     return ApiResponse(
         success=True,
         data={
@@ -223,142 +210,128 @@ async def get_documents(
                 "page": page,
                 "page_size": page_size,
                 "total": total,
-                "total_pages": (total + page_size - 1) // page_size
-            }
-        }
+                "total_pages": (total + page_size - 1) // page_size,
+            },
+        },
     )
 
 
 @router.get("/{document_id}", response_model=ApiResponse)
 async def get_document(document_id: str, db: Session = Depends(get_db)):
-    """获取文档详情，包含历史提取结果"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="文档不存在")
-    
-    import json
-    metadata = json.loads(document.document_metadata) if document.document_metadata else None
-    
-    # 获取历史提取结果
-    extraction_results = db.query(ExtractionResult).filter(
-        ExtractionResult.document_id == document_id
-    ).order_by(ExtractionResult.created_at.desc()).all()
-    
-    # 按标签组织提取结果
-    extraction_history = {}
-    for er in extraction_results:
-        tag_id = er.tag_config_id
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    extraction_results = (
+        db.query(ExtractionResult)
+        .filter(ExtractionResult.document_id == document_id)
+        .order_by(ExtractionResult.created_at.desc())
+        .all()
+    )
+
+    extraction_history: Dict[str, Dict[str, object]] = {}
+    for extraction_result in extraction_results:
+        tag_id = extraction_result.tag_config_id
         if tag_id not in extraction_history:
             extraction_history[tag_id] = {
                 "tag_config_id": tag_id,
                 "latest_result": None,
-                "all_results": []
+                "all_results": [],
             }
-        
+
         result_data = {
-            "id": er.id,
-            "result": json.loads(er.result) if er.result else {},
-            "retrieval_results": json.loads(er.retrieval_results) if er.retrieval_results else [],
-            "prompt": er.prompt,
-            "llm_response": er.llm_response,
-            "parsed_result": json.loads(er.parsed_result) if er.parsed_result else {},
-            "extraction_time": json.loads(er.extraction_time) if er.extraction_time else {},
-            "created_at": er.created_at.isoformat() if hasattr(er.created_at, 'isoformat') else str(er.created_at)
+            "id": extraction_result.id,
+            "result": json.loads(extraction_result.result) if extraction_result.result else {},
+            "retrieval_results": json.loads(extraction_result.retrieval_results) if extraction_result.retrieval_results else [],
+            "prompt": extraction_result.prompt,
+            "llm_response": extraction_result.llm_response,
+            "parsed_result": json.loads(extraction_result.parsed_result) if extraction_result.parsed_result else {},
+            "extraction_time": json.loads(extraction_result.extraction_time) if extraction_result.extraction_time else {},
+            "created_at": extraction_result.created_at.isoformat()
+            if hasattr(extraction_result.created_at, "isoformat")
+            else str(extraction_result.created_at),
         }
-        
+
         extraction_history[tag_id]["all_results"].append(result_data)
         if extraction_history[tag_id]["latest_result"] is None:
             extraction_history[tag_id]["latest_result"] = result_data
-    
-    # 检查是否有提取结果，标记文档状态
-    has_extraction = len(extraction_history) > 0
-    
-    doc_dict = {
-        "id": document.id,
-        "filename": document.filename,
-        "file_type": document.file_type,
-        "status": document.status,
-        "metadata": metadata,
-        "has_extraction": has_extraction,
-        "extraction_history": extraction_history,
-        "created_at": document.created_at.isoformat() if hasattr(document.created_at, 'isoformat') else str(document.created_at),
-        "updated_at": document.updated_at.isoformat() if hasattr(document.updated_at, 'isoformat') else str(document.updated_at)
-    }
-    
-    return ApiResponse(
-        success=True,
-        data={"document": doc_dict}
-    )
+
+    document_data = _serialize_document(document)
+    document_data["has_extraction"] = len(extraction_history) > 0
+    document_data["extraction_history"] = extraction_history
+
+    return ApiResponse(success=True, data={"document": document_data})
 
 
 @router.get("/{document_id}/status", response_model=ApiResponse)
 async def get_document_status(document_id: str, db: Session = Depends(get_db)):
-    """获取文档处理状态"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="文档不存在")
-    
-    progress = 100 if document.status == "completed" else 50 if document.status == "processing" else 0
-    
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    progress_map = {"queued": 10, "processing": 70, "completed": 100, "failed": 0}
+
     return ApiResponse(
         success=True,
         data=DocumentStatusResponse(
             status=document.status,
-            progress=progress,
-            message=f"文档状态: {document.status}"
-        )
+            progress=progress_map.get(document.status, 0),
+            message=f"Document status: {document.status}",
+        ),
+    )
+
+
+@router.post("/{document_id}/retry", response_model=ApiResponse)
+async def retry_document_ingest(document_id: str, db: Session = Depends(get_db)):
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        job = ingest_queue_service.retry_document_job(db, document_id)
+    except ValueError as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db.commit()
+    db.refresh(document)
+    db.refresh(job)
+
+    return ApiResponse(
+        success=True,
+        data={"document": _serialize_document(document, job), "ingest_job": ingest_queue_service.serialize_job(job)},
+        message="Document job queued for retry",
     )
 
 
 @router.delete("/{document_id}", response_model=ApiResponse)
 async def delete_document(document_id: str, db: Session = Depends(get_db)):
-    """删除文档及其所有关联数据"""
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="文档不存在")
-    
-    document_logger.info(f"开始删除文档: {document.filename} (ID: {document_id})")
-    
+        raise HTTPException(status_code=404, detail="Document not found")
+
     try:
-        # 1. 删除向量数据库中的向量
         try:
             vector_db = LanceDBProvider(settings.lance_db_path)
             await vector_db.delete_by_document_id(document_id)
-            document_logger.info(f"已删除向量数据库中的向量: {document_id}")
-        except Exception as e:
-            document_logger.warning(f"删除向量数据失败: {str(e)}")
-            debug_logger.warning(f"删除向量数据失败: {str(e)}\n{traceback.format_exc()}")
-        
-        # 2. 删除数据库中的向量记录
+        except Exception as exc:  # noqa: BLE001
+            document_logger.warning("Failed to delete vectors: %s", exc)
+            debug_logger.warning("Failed to delete vectors: %s\n%s", exc, traceback.format_exc())
+
         db.query(DocumentVector).filter(DocumentVector.document_id == document_id).delete()
-        document_logger.info(f"已删除数据库中的向量记录: {document_id}")
-        
-        # 3. 删除提取结果（由于设置了cascade，应该会自动删除，但显式删除更安全）
         db.query(ExtractionResult).filter(ExtractionResult.document_id == document_id).delete()
-        document_logger.info(f"已删除提取结果: {document_id}")
-        
-        # 4. 删除文件
+
         if os.path.exists(document.file_path):
             os.remove(document.file_path)
-            document_logger.info(f"已删除原始文件: {document.file_path}")
         if document.json_path and os.path.exists(document.json_path):
             os.remove(document.json_path)
-            document_logger.info(f"已删除JSON文件: {document.json_path}")
-        
-        # 5. 删除文档记录
+
         db.delete(document)
         db.commit()
-        
-        document_logger.info(f"文档删除成功: {document.filename} (ID: {document_id})")
-        
-        return ApiResponse(
-            success=True,
-            message="文档及其所有关联数据已删除"
-        )
-    except Exception as e:
+
+        return ApiResponse(success=True, message="Document and related data deleted")
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
-        error_msg = f"删除文档失败: {str(e)}\n{traceback.format_exc()}"
+        error_msg = f"Failed to delete document: {exc}\n{traceback.format_exc()}"
         document_logger.error(error_msg)
         debug_logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=f"删除文档失败: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {exc}") from exc

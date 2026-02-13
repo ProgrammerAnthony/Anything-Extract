@@ -13,6 +13,16 @@ AnythingExtract 是一个专注于文档结构化信息提取和知识管理的�
 - Frontend: upload dialog and KB/document pages now accept the same Stage 1 extensions.
 - Storage architecture unchanged: still SQLite + LanceDB, no MySQL/Milvus migration.
 
+### Stage 2 Update (2026-02-13)
+
+- Scope: decouple upload request from heavy parsing/vectorization via QAnything-style queue worker.
+- Backend queue model: added SQLite table `document_ingest_jobs` with state machine (`queued`, `processing`, `completed`, `failed`), retries, worker lock metadata.
+- Upload API: `POST /api/documents/upload` now supports `processing_mode` (`queue` / `immediate`) and returns `ingest_job` snapshot.
+- Worker service: added `backend/workers/ingest_worker.py` and orchestration service `backend/services/ingest_queue_service.py`.
+- Retry API: added `POST /api/documents/{document_id}/retry` for failed/completed queue tasks.
+- Frontend: KB document list now supports processing mode toggle, optimistic insertion, active polling for queued/processing tasks, and failed-task retry without page refresh.
+- Run orchestration: `run.sh` now starts backend + frontend + ingest worker by default, with flags for queue/worker fallback.
+
 ### 核心功能
 
 系统包含三大核心模块：
