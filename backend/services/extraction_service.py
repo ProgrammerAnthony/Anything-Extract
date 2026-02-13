@@ -1,12 +1,13 @@
 """信息提取服务"""
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
 import time
-import traceback
 
 from sqlalchemy.orm import Session
 from core.database import TagConfig, Document, ExtractionResult
 from services.retrieval_service import RetrievalService
+from services.rag_enhancement_service import RAGEnhancementService
+from services.llm_processing_service import LLMProcessingService
 from providers.llm.ollama import OllamaProvider
 from core.config import settings
 from utils.logging import extract_logger, debug_logger
@@ -22,6 +23,7 @@ class ExtractionService:
             base_url=settings.ollama_base_url,
             model=settings.ollama_model
         )
+        self.llm_processing_service = LLMProcessingService(self.llm_provider)
     
     async def extract_multiple_tags(
         self,
@@ -30,6 +32,8 @@ class ExtractionService:
         retrieval_method: str = "basic",
         top_k: int = 2,  # 默认只取2个片段
         rerank: bool = False,
+        rag_enhancement_enabled: bool = False,
+        rag_tag_enhancements: Optional[Dict[str, Any]] = None,
         save_to_db: bool = True
     ) -> Dict[str, Any]:
         """执行多标签信息提取 - 每个标签独立检索，但统一构建提示词"""
@@ -47,23 +51,84 @@ class ExtractionService:
         extract_logger.info("步骤1: 为每个标签独立检索")
         for tag_config in tag_configs:
             tag_start = time.time()
-            query = f"{tag_config.name}: {tag_config.description or ''}"
-            extract_logger.info(f"  [{tag_config.name}] 构建查询: {query}")
+            base_query = RAGEnhancementService.build_base_query(tag_config)
+
+            enhanced_questions = []
+            if rag_enhancement_enabled and rag_tag_enhancements:
+                enhancement_item = rag_tag_enhancements.get(tag_config.id)
+                if isinstance(enhancement_item, dict):
+                    questions = enhancement_item.get("questions", [])
+                    if isinstance(questions, list):
+                        enhanced_questions = [
+                            str(question).strip() for question in questions if str(question).strip()
+                        ]
+
+            queries = [base_query] + enhanced_questions
+            seen_queries = set()
+            deduped_queries = []
+            for item in queries:
+                if item not in seen_queries:
+                    seen_queries.add(item)
+                    deduped_queries.append(item)
+            queries = deduped_queries
+
+            extract_logger.info(
+                f"  [{tag_config.name}] 构建查询: base=1, enhanced={len(enhanced_questions)}, total={len(queries)}"
+            )
             
             # 独立检索
-            search_results = await self.retrieval_service.retrieve(
-                query=query,
-                document_id=document.id,
-                method=retrieval_method,
-                top_k=top_k,
-                rerank=rerank
-            )
+            query_results = []
+            for query in queries:
+                single_query_results = await self.retrieval_service.retrieve(
+                    query=query,
+                    document_id=document.id,
+                    method=retrieval_method,
+                    top_k=top_k,
+                    rerank=rerank
+                )
+                query_results.append({
+                    "query": query,
+                    "results": single_query_results,
+                })
+
+            # 按 chunk_id 去重并保留最高相似度
+            merged_by_chunk = {}
+            for query_item in query_results:
+                current_query = query_item["query"]
+                for result_item in query_item["results"]:
+                    chunk_id = result_item.get("chunk_id")
+                    if not chunk_id:
+                        chunk_id = f"__no_chunk__::{current_query}::{result_item.get('content', '')[:20]}"
+
+                    enriched_result = dict(result_item)
+                    enriched_result["query"] = current_query
+
+                    if chunk_id not in merged_by_chunk:
+                        merged_by_chunk[chunk_id] = enriched_result
+                        continue
+
+                    old_similarity = merged_by_chunk[chunk_id].get("similarity")
+                    new_similarity = enriched_result.get("similarity")
+                    if (new_similarity or 0) > (old_similarity or 0):
+                        merged_by_chunk[chunk_id] = enriched_result
+
+            search_results = sorted(
+                merged_by_chunk.values(),
+                key=lambda item: item.get("similarity") or 0,
+                reverse=True,
+            )[:top_k]
+
             tag_retrieval_time = time.time() - tag_start
             retrieval_times[tag_config.id] = tag_retrieval_time
             
             tag_retrieval_results[tag_config.id] = {
                 "tag_config": tag_config,
-                "query": query,
+                "query": base_query,
+                "query_bundle": {
+                    "base_query": base_query,
+                    "enhanced_questions": enhanced_questions,
+                    "queries": queries,
+                },
                 "results": search_results,
                 "retrieval_time": tag_retrieval_time
             }
@@ -141,140 +206,89 @@ class ExtractionService:
         extract_logger.info(f"完整提示词:\n{'-'*80}\n{prompt}\n{'-'*80}")
         extract_logger.info(f"提示词长度: {len(prompt)}字符")
         
-        # 调用 LLM（首次调用）
-        extract_logger.info("步骤3: 调用LLM生成结果")
-        llm_start = time.time()
-        llm_time = 0
-        result_text = None
-        try:
-            result_text = await self.llm_provider.generate(prompt)
-            llm_time = time.time() - llm_start
-            extract_logger.info(f"LLM生成完成，耗时: {llm_time:.2f}秒，响应长度: {len(result_text) if result_text else 0}")
-            extract_logger.info(f"LLM原始响应:\n{'-'*80}\n{result_text}\n{'-'*80}")
-        except Exception as e:
-            llm_time = time.time() - llm_start
-            error_msg = f"LLM生成失败，耗时: {llm_time:.2f}秒，错误: {str(e)}"
+        # 调用 LLM + 解析校验（统一抽象）
+        extract_logger.info("步骤3: 调用LLM并解析结果")
+        scene = f"extract.multi_tags.{document.id}"
+        workflow_result = await self.llm_processing_service.run_with_retry(
+            prompt=prompt,
+            logger=extract_logger,
+            scene=scene,
+            parse_fn=lambda text: self._parse_multi_tag_extraction_result(text, tag_configs),
+            validate_fn=lambda parsed: self._validate_multi_tag_result_schema(parsed, tag_configs),
+            request_payload={
+                "tag_names": tag_names,
+                "retrieval_method": retrieval_method,
+                "top_k": top_k,
+                "rerank": rerank,
+                "rag_enhancement_enabled": rag_enhancement_enabled,
+            },
+            max_retries=3,
+        )
+
+        llm_time = workflow_result.llm_time
+        parse_time = workflow_result.parse_time
+        retry_count = workflow_result.retry_count
+        result_text = workflow_result.response_text
+        result = workflow_result.parsed_result
+
+        if not workflow_result.success or result is None:
+            error_msg = f"LLM结果解析/校验失败: {workflow_result.last_error or '未知错误'}"
             extract_logger.error(error_msg)
-            debug_logger.error(f"{error_msg}\n{traceback.format_exc()}")
-            raise Exception(error_msg) from e
-        
-        # 解析和验证结果（带重试逻辑）
-        extract_logger.info("步骤4: 解析和验证结果")
-        parse_start = time.time()
-        result = None
-        max_retries = 3
-        retry_count = 0
-        all_valid = False
-        
-        while retry_count < max_retries:
-            try:
-                result = self._parse_multi_tag_extraction_result(result_text, tag_configs)
-                
-                # 检查解析是否成功（结果应该是字典，且每个标签的结果应该是字典格式，包含values字段）
-                parse_success = True
-                for tag_config in tag_configs:
-                    tag_result = result.get(tag_config.name)
-                    # 如果标签结果是None，说明解析失败
-                    if tag_result is None:
-                        parse_success = False
-                        extract_logger.warning(f"标签 {tag_config.name} 解析失败，结果为None")
-                        break
-                    # 如果标签结果不是字典，说明格式不正确
-                    elif not isinstance(tag_result, dict):
-                        parse_success = False
-                        extract_logger.warning(f"标签 {tag_config.name} 解析失败，结果格式不正确: {type(tag_result)}, 值: {tag_result}")
-                        break
-                    # 检查是否包含values字段
-                    elif "values" not in tag_result:
-                        parse_success = False
-                        extract_logger.warning(f"标签 {tag_config.name} 解析失败，缺少values字段，结果: {tag_result}")
-                        break
-                
-                if not parse_success:
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        extract_logger.warning(f"解析失败，准备重试... (剩余 {max_retries - retry_count} 次)")
-                        # 重新调用LLM
-                        retry_llm_start = time.time()
-                        result_text = await self.llm_provider.generate(prompt)
-                        retry_llm_time = time.time() - retry_llm_start
-                        llm_time += retry_llm_time
-                        extract_logger.info(f"重试LLM调用完成，耗时: {retry_llm_time:.2f}秒，响应长度: {len(result_text) if result_text else 0}")
-                        extract_logger.info(f"重试LLM原始响应:\n{'-'*80}\n{result_text}\n{'-'*80}")
-                        continue
+            raise Exception(error_msg)
+
+        # 业务规则验证（标签值合法性）
+        all_valid = True
+        invalid_tags = []
+        for tag_config in tag_configs:
+            if not self._validate_extraction_result(result, tag_config):
+                all_valid = False
+                invalid_tags.append(tag_config.name)
+                options = json.loads(tag_config.options) if tag_config.options else []
+                extract_logger.warning(
+                    f"标签 {tag_config.name} ({tag_config.type}) 验证失败，返回值: {result.get(tag_config.name)}, 可选项: {options}"
+                )
+
+        if not all_valid:
+            extract_logger.warning(f"部分标签验证失败: {invalid_tags}，准备拆分为单个标签分别提取...")
+            for tag_name in invalid_tags:
+                tag_config = next(tc for tc in tag_configs if tc.name == tag_name)
+                try:
+                    enhancement_for_single_tag = None
+                    if rag_tag_enhancements and tag_config.id in rag_tag_enhancements:
+                        enhancement_for_single_tag = {tag_config.id: rag_tag_enhancements[tag_config.id]}
+
+                    single_extract_result = await self.extract_multiple_tags(
+                        tag_configs=[tag_config],
+                        document=document,
+                        retrieval_method=retrieval_method,
+                        top_k=top_k,
+                        rerank=rerank,
+                        rag_enhancement_enabled=rag_enhancement_enabled,
+                        rag_tag_enhancements=enhancement_for_single_tag,
+                        save_to_db=False
+                    )
+
+                    single_tag_result = single_extract_result.get("result", {}).get(tag_name)
+                    if single_tag_result is not None:
+                        result[tag_name] = single_tag_result
+                        extract_logger.info(f"  [{tag_name}] 单独提取成功")
                     else:
-                        extract_logger.error(f"达到最大重试次数，解析仍然失败")
-                        parse_time = time.time() - parse_start
-                        break
-                
-                # 验证所有标签的结果
-                all_valid = True
-                invalid_tags = []
-                for tag_config in tag_configs:
-                    if not self._validate_extraction_result(result, tag_config):
-                        all_valid = False
-                        invalid_tags.append(tag_config.name)
-                        options = json.loads(tag_config.options) if tag_config.options else []
-                        extract_logger.warning(f"标签 {tag_config.name} ({tag_config.type}) 验证失败，返回值: {result.get(tag_config.name)}, 可选项: {options}")
-                
-                if all_valid:
-                    parse_time = time.time() - parse_start
-                    extract_logger.info(f"所有标签结果验证通过，耗时: {parse_time:.2f}秒")
+                        extract_logger.warning(f"  [{tag_name}] 单独提取结果为空")
+                        result[tag_name] = {"values": [], "reasoning": "", "original_content": ""}
+                except Exception as e:
+                    extract_logger.error(f"  [{tag_name}] 单独提取失败: {str(e)}")
+                    result[tag_name] = {"values": [], "reasoning": "", "original_content": ""}
+
+            all_valid = True
+            for tag_config in tag_configs:
+                if not self._validate_extraction_result(result, tag_config):
+                    all_valid = False
                     break
-                else:
-                    retry_count += 1
-                    if retry_count < max_retries:
-                        extract_logger.warning(f"部分标签验证失败: {invalid_tags}，准备拆分为单个标签分别提取...")
-                        # 拆分为单个标签分别提取，复用多标签提取逻辑
-                        for tag_name in invalid_tags:
-                            tag_config = next(tc for tc in tag_configs if tc.name == tag_name)
-                            try:
-                                # 使用多标签提取方法，但只传入单个标签
-                                single_extract_result = await self.extract_multiple_tags(
-                                    tag_configs=[tag_config],
-                                    document=document,
-                                    retrieval_method=retrieval_method,
-                                    top_k=top_k,
-                                    rerank=rerank,
-                                    save_to_db=False  # 不保存，最后统一保存
-                                )
-                                # 从结果中提取单个标签的数据
-                                single_tag_result = single_extract_result.get("result", {}).get(tag_name)
-                                if single_tag_result:
-                                    result[tag_name] = single_tag_result
-                                    extract_logger.info(f"  [{tag_name}] 单独提取成功")
-                                else:
-                                    extract_logger.warning(f"  [{tag_name}] 单独提取结果为空")
-                                    result[tag_name] = {"values": [], "reasoning": "", "original_content": ""}
-                            except Exception as e:
-                                extract_logger.error(f"  [{tag_name}] 单独提取失败: {str(e)}")
-                                result[tag_name] = {"values": [], "reasoning": "", "original_content": ""}
-                        
-                        # 重新验证
-                        all_valid = True
-                        for tag_config in tag_configs:
-                            if not self._validate_extraction_result(result, tag_config):
-                                all_valid = False
-                                break
-                        
-                        if all_valid:
-                            parse_time = time.time() - parse_start
-                            extract_logger.info(f"拆分提取后所有标签验证通过，耗时: {parse_time:.2f}秒")
-                            break
-                        else:
-                            extract_logger.error(f"拆分提取后仍有标签验证失败")
-                            parse_time = time.time() - parse_start
-                            break
-                    else:
-                        extract_logger.error(f"达到最大重试次数，使用最后一次返回的结果")
-                        parse_time = time.time() - parse_start
-                        break
-            except Exception as e:
-                parse_time = time.time() - parse_start
-                error_msg = f"结果解析失败，耗时: {parse_time:.2f}秒，错误: {str(e)}，原始响应: {result_text[:500] if result_text else 'None'}"
-                extract_logger.error(error_msg)
-                debug_logger.error(f"{error_msg}\n{traceback.format_exc()}")
-                raise Exception(error_msg) from e
+
+            if all_valid:
+                extract_logger.info("拆分提取后所有标签验证通过")
+            else:
+                extract_logger.error("拆分提取后仍有标签验证失败，使用当前结果继续")
         
         extract_logger.info(f"解析前数据: {result_text[:200] if result_text else 'None'}...")
         extract_logger.info(f"解析后数据: {json.dumps(result, ensure_ascii=False, indent=2) if result else 'None'}")
@@ -358,6 +372,11 @@ class ExtractionService:
                 "result": tag_value,
                 "reasoning": reasoning,
                 "original_content": original_content,
+                "query_bundle": tag_retrieval.get("query_bundle", {
+                    "base_query": tag_retrieval.get("query"),
+                    "enhanced_questions": [],
+                    "queries": [tag_retrieval.get("query")],
+                }),
                 "retrieval_results": tag_retrieval["results"],
                 "sources": sources
             }
@@ -613,3 +632,22 @@ class ExtractionService:
         extract_logger.error(f"无法解析LLM返回结果，原始文本: {result_text[:500]}")
         return {tag_config.name: None for tag_config in tag_configs}
 
+    def _validate_multi_tag_result_schema(
+        self,
+        result: Dict[str, Any],
+        tag_configs: List[TagConfig]
+    ) -> tuple[bool, Optional[str]]:
+        """验证多标签结果的基础Schema（是否包含每个标签和values字段）"""
+        if not isinstance(result, dict):
+            return False, f"解析结果类型错误: {type(result)}"
+
+        for tag_config in tag_configs:
+            tag_result = result.get(tag_config.name)
+            if tag_result is None:
+                return False, f"标签 {tag_config.name} 结果为None"
+            if not isinstance(tag_result, dict):
+                return False, f"标签 {tag_config.name} 结果格式错误: {type(tag_result)}"
+            if "values" not in tag_result:
+                return False, f"标签 {tag_config.name} 缺少values字段"
+
+        return True, None

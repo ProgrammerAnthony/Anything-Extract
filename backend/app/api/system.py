@@ -36,12 +36,7 @@ async def get_config():
             retrieval={
                 "default_method": settings.default_retrieval_method,
                 "available_methods": [
-                    "basic",
-                    "multi_query",
-                    "hyde",
-                    "parent_document",
-                    "rerank",
-                    "bm25"
+                    "basic"
                 ]
             }
         )

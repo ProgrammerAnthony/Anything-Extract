@@ -9,14 +9,55 @@ from app.models.schemas import (
     ExtractionRequest,
     ExtractionResult,
     MultiTagExtractionRequest,
+    RAGTagEnhancementRequest,
     BatchExtractionRequest,
     BatchExtractionResponse,
     ApiResponse
 )
 from services.extraction_service import ExtractionService
+from services.rag_enhancement_service import RAGEnhancementService
 from utils.logging import extract_logger, debug_logger
+from utils.logging import rag_logger
 
 router = APIRouter()
+
+
+@router.post("/rag/enhance-tags", response_model=ApiResponse)
+async def enhance_tags_for_rag(
+    request: RAGTagEnhancementRequest,
+    db: Session = Depends(get_db)
+):
+    """为标签生成RAG增强问题"""
+    rag_logger.info(f"收到RAG增强请求: tag_ids={request.tag_config_ids}, question_count={request.question_count}, strategy={request.strategy}")
+    if not request.tag_config_ids:
+        raise HTTPException(status_code=400, detail="至少需要一个标签配置")
+
+    tag_configs = db.query(TagConfig).filter(TagConfig.id.in_(request.tag_config_ids)).all()
+    if len(tag_configs) != len(request.tag_config_ids):
+        found_ids = {tc.id for tc in tag_configs}
+        missing_ids = set(request.tag_config_ids) - found_ids
+        raise HTTPException(status_code=404, detail=f"部分标签配置不存在: {missing_ids}")
+
+    enhancement_service = RAGEnhancementService()
+    try:
+        enhancements = await enhancement_service.enhance_tags(
+            tag_configs=tag_configs,
+            question_count=request.question_count or 3,
+            strategy=request.strategy,
+        )
+        rag_logger.info(
+            f"RAG增强API成功，返回标签数: {len(enhancements)}, 标签IDs: {list(enhancements.keys())}"
+        )
+        return ApiResponse(
+            success=True,
+            data={
+                "tag_enhancements": enhancements,
+                "strategy": request.strategy or RAGEnhancementService.DEFAULT_STRATEGY,
+            }
+        )
+    except ValueError as exc:
+        rag_logger.error(f"RAG增强API失败（参数错误）: {str(exc)}")
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("", response_model=ApiResponse)
@@ -31,7 +72,9 @@ async def extract(
         document_id=request.document_id,
         retrieval_method=request.retrieval_method,
         top_k=request.top_k,
-        rerank=request.rerank
+        rerank=request.rerank,
+        rag_enhancement_enabled=request.rag_enhancement_enabled,
+        rag_tag_enhancements=request.rag_tag_enhancements,
     )
     
     # 调用多标签提取接口
@@ -76,7 +119,9 @@ async def multi_tag_extract(
             document=document,
             retrieval_method=request.retrieval_method,
             top_k=request.top_k,
-            rerank=request.rerank
+            rerank=request.rerank,
+            rag_enhancement_enabled=request.rag_enhancement_enabled,
+            rag_tag_enhancements=request.rag_tag_enhancements,
         )
         
         extraction_time = time.time() - start_time
@@ -143,7 +188,9 @@ async def batch_extract(
                 document=document,
                 retrieval_method=request.retrieval_method,
                 top_k=request.top_k,
-                rerank=False
+                rerank=False,
+                rag_enhancement_enabled=False,
+                rag_tag_enhancements=None,
             )
             
             # 从多标签结果中提取单个标签的结果

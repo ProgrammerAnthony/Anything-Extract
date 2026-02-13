@@ -20,7 +20,9 @@ async def extract_with_stream(
     extraction_service: ExtractionService,
     retrieval_method: str = "basic",
     top_k: int = 5,
-    rerank: bool = False
+    rerank: bool = False,
+    rag_enhancement_enabled: bool = False,
+    rag_tag_enhancements: dict | None = None,
 ):
     """带流式输出的多标签提取过程"""
     start_time = time.time()
@@ -38,6 +40,8 @@ async def extract_with_stream(
             retrieval_method=retrieval_method,
             top_k=top_k,
             rerank=rerank,
+            rag_enhancement_enabled=rag_enhancement_enabled,
+            rag_tag_enhancements=rag_tag_enhancements,
             save_to_db=True
         )
         
@@ -102,7 +106,9 @@ async def extract_stream(
             extraction_service=extraction_service,
             retrieval_method=request.retrieval_method,
             top_k=request.top_k,
-            rerank=request.rerank
+            rerank=request.rerank,
+            rag_enhancement_enabled=request.rag_enhancement_enabled,
+            rag_tag_enhancements=request.rag_tag_enhancements,
         ),
         media_type="text/event-stream",
         headers={

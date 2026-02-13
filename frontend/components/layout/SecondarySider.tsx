@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Tag, Search, FolderOpen, Settings, Edit2, Trash2, Check, X, Plus, ChevronLeft,PanelRightOpen, ChevronRight, ChevronLeftIcon } from 'lucide-react';
+import { Tag, Search, FolderOpen, Edit2, Trash2, Check, X, ChevronLeft,PanelRightOpen, ChevronRight, ChevronLeftIcon } from 'lucide-react';
 import { knowledgeBaseApi } from '@/lib/api';
 
 // 可复用的二级侧边栏顶部组件
@@ -46,21 +46,30 @@ interface SecondarySiderProps {
 export default function SecondarySider({ activeMenu, currentKbId, collapsed, onToggle }: SecondarySiderProps) {
   const router = useRouter();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [kbName, setKbName] = useState('');
+  const [inputKeyword, setInputKeyword] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [hoveredKbId, setHoveredKbId] = useState<string | null>(null);
+  const [hoverMenuPosition, setHoverMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const hoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (activeMenu === 'knowledge-base') {
-      loadKnowledgeBases();
+    if (activeMenu !== 'knowledge-base') {
+      return;
     }
-  }, [activeMenu]);
 
-  const loadKnowledgeBases = async () => {
+    const timer = setTimeout(() => {
+      const keyword = inputKeyword.trim();
+      loadKnowledgeBases(keyword || undefined);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [activeMenu, inputKeyword]);
+
+  const loadKnowledgeBases = async (search?: string) => {
     try {
-      const response = await knowledgeBaseApi.getAll();
+      const response = await knowledgeBaseApi.getAll(search ? { search } : undefined);
       if (response.data.success) {
         setKnowledgeBases(response.data.data.knowledge_bases);
       }
@@ -69,15 +78,29 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
     }
   };
 
+  const handleSearch = async () => {
+    const keyword = inputKeyword.trim();
+    await loadKnowledgeBases(keyword || undefined);
+  };
+
   const handleCreate = async () => {
-    if (!kbName.trim()) {
+    const name = inputKeyword.trim();
+    if (!name) {
       alert('请输入知识库名称');
       return;
     }
 
+    const exactMatch = knowledgeBases.find(
+      (kb) => kb.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (exactMatch) {
+      router.push(`/knowledge-bases/${exactMatch.id}`);
+      return;
+    }
+
     try {
-      await knowledgeBaseApi.create({ name: kbName.trim() });
-      setKbName('');
+      await knowledgeBaseApi.create({ name });
+      setInputKeyword('');
       loadKnowledgeBases();
     } catch (error: any) {
       console.error('创建知识库失败:', error);
@@ -85,16 +108,52 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
     }
   };
 
-  const handleManage = (kb: KnowledgeBase) => {
-    setHoveredKbId(null);
-    router.push(`/knowledge-bases/${kb.id}`);
-  };
-
   const handleRename = (kb: KnowledgeBase) => {
+    if (hoverCloseTimerRef.current) {
+      clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
     setEditingId(kb.id);
     setEditingName(kb.name);
     setHoveredKbId(null);
+    setHoverMenuPosition(null);
   };
+
+  const handleHoverMenuOpen = (e: MouseEvent<HTMLDivElement>, kbId: string) => {
+    if (hoverCloseTimerRef.current) {
+      clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHoveredKbId(kbId);
+    setHoverMenuPosition({
+      top: rect.top,
+      left: rect.right + 8,
+    });
+  };
+
+  const handleHoverMenuClose = () => {
+    setHoveredKbId(null);
+    setHoverMenuPosition(null);
+  };
+
+  const scheduleHoverMenuClose = () => {
+    if (hoverCloseTimerRef.current) {
+      clearTimeout(hoverCloseTimerRef.current);
+    }
+    hoverCloseTimerRef.current = setTimeout(() => {
+      handleHoverMenuClose();
+      hoverCloseTimerRef.current = null;
+    }, 120);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hoverCloseTimerRef.current) {
+        clearTimeout(hoverCloseTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSaveRename = async (id: string) => {
     if (!editingName.trim()) {
@@ -106,7 +165,7 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
       await knowledgeBaseApi.update(id, { name: editingName.trim() });
       setEditingId(null);
       setEditingName('');
-      loadKnowledgeBases();
+      loadKnowledgeBases(inputKeyword.trim() || undefined);
     } catch (error: any) {
       console.error('重命名失败:', error);
       alert(error.response?.data?.detail || '重命名失败');
@@ -123,7 +182,12 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
     try {
       await knowledgeBaseApi.delete(id);
       setShowDeleteConfirm(null);
-      loadKnowledgeBases();
+      if (hoverCloseTimerRef.current) {
+        clearTimeout(hoverCloseTimerRef.current);
+        hoverCloseTimerRef.current = null;
+      }
+      setHoverMenuPosition(null);
+      loadKnowledgeBases(inputKeyword.trim() || undefined);
       if (currentKbId === id) {
         router.push('/knowledge-bases');
       }
@@ -185,19 +249,25 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
           {/* 顶部标题栏 */}
           <SecondarySiderHeader title="知识库列表" collapsed={collapsed} onToggle={onToggle} />
 
-          {/* 搜索/新建输入框 - 参考QAnything的AddInput */}
+          {/* 搜索/新建共用输入框 */}
           {!collapsed && (
             <div className="px-3 py-4 border-b border-gray-200">
               <div className="relative flex items-center bg-white border border-gray-300 rounded-lg overflow-visible">
-                <Search className="absolute left-3 text-gray-400 z-10" size={16} />
+                <button
+                  onClick={handleSearch}
+                  className="absolute left-2 p-1 text-gray-400 hover:text-gray-600 z-10"
+                  title="搜索"
+                >
+                  <Search size={16} />
+                </button>
                 <input
                   type="text"
-                  value={kbName}
-                  onChange={(e) => setKbName(e.target.value)}
-                  onKeyPress={(e) => {
+                  value={inputKeyword}
+                  onChange={(e) => setInputKeyword(e.target.value)}
+                  onKeyDown={(e) => {
                     if (e.key === 'Enter') handleCreate();
                   }}
-                  placeholder="请输入知识库名称"
+                  placeholder="输入名称可实时检索，回车可新建"
                   className="flex-1 pl-10 pr-16 py-2 text-sm text-gray-800 bg-transparent border-0 outline-none placeholder:text-gray-400"
                 />
                 <button
@@ -219,8 +289,8 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                 <div
                   key={kb.id}
                   className="relative mb-4"
-                  onMouseEnter={() => !collapsed && setHoveredKbId(kb.id)}
-                  onMouseLeave={() => setHoveredKbId(null)}
+                  onMouseEnter={(e) => !collapsed && handleHoverMenuOpen(e, kb.id)}
+                  onMouseLeave={scheduleHoverMenuClose}
                 >
                   <div
                     className={`
@@ -237,7 +307,7 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                           type="text"
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          onKeyPress={(e) => {
+                          onKeyDown={(e) => {
                             if (e.key === 'Enter') handleSaveRename(kb.id);
                             if (e.key === 'Escape') handleCancelRename();
                           }}
@@ -282,21 +352,24 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                     )}
                   </div>
 
-                  {/* 悬停菜单 */}
+                  {/* 悬停菜单：重命名/删除 */}
                   {!collapsed && hoveredKbId === kb.id && !editingId && (
                     <div
-                      className="absolute left-full ml-2 top-0 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[100px]"
-                      onMouseEnter={() => setHoveredKbId(kb.id)}
-                      onMouseLeave={() => setHoveredKbId(null)}
+                      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[100px]"
+                      style={{
+                        top: hoverMenuPosition?.top,
+                        left: hoverMenuPosition?.left,
+                      }}
+                      onMouseEnter={() => {
+                        if (hoverCloseTimerRef.current) {
+                          clearTimeout(hoverCloseTimerRef.current);
+                          hoverCloseTimerRef.current = null;
+                        }
+                        setHoveredKbId(kb.id);
+                      }}
+                      onMouseLeave={scheduleHoverMenuClose}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <button
-                        onClick={() => handleManage(kb)}
-                        className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
-                      >
-                        <Settings size={14} />
-                        <span>管理</span>
-                      </button>
                       <button
                         onClick={() => handleRename(kb)}
                         className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
@@ -305,7 +378,10 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                         <span>重命名</span>
                       </button>
                       <button
-                        onClick={() => setShowDeleteConfirm(kb.id)}
+                        onClick={() => {
+                          setShowDeleteConfirm(kb.id);
+                          handleHoverMenuClose();
+                        }}
                         className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors"
                       >
                         <Trash2 size={14} />
