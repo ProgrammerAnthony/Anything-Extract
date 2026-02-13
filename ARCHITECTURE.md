@@ -4,13 +4,22 @@
 
 AnythingExtract 是一个专注于文档结构化信息提取和知识管理的本地化工具。系统采用前后端分离架构，后端使用 Python + FastAPI + LangChain，前端使用 Next.js，默认集成 Ollama 和 LanceDB 实现完全本地化部署。
 
+### Stage 1 Update (2026-02-13)
+
+- Scope: adopt QAnything-style loader expansion without introducing dependent_server services.
+- Backend: `DocumentParser` now supports `pdf, docx, txt, md, csv, json, xlsx, pptx, eml`.
+- Loader reuse: added `backend/utils/loaders/{csv_loader.py,json_loader.py,markdown_parser.py}` copied/adapted from QAnything loader logic.
+- Upload validation: `backend/app/api/documents.py` validates by file extension first (with MIME mismatch warning), matching Stage 1 constraints.
+- Frontend: upload dialog and KB/document pages now accept the same Stage 1 extensions.
+- Storage architecture unchanged: still SQLite + LanceDB, no MySQL/Milvus migration.
+
 ### 核心功能
 
 系统包含三大核心模块：
 
 **1. 知识提取模块**
 - **标签配置管理**：支持单选、多选、填空三种标签类型
-- **文档解析**：支持 PDF 和 Word 文档的解析和向量化
+- **Document parsing**: supports PDF/DOCX/TXT/Markdown/CSV/JSON/XLSX/PPTX/EML parsing and vectorization (Stage 1).
 - **智能检索**：基于向量数据库和高级 RAG 方案检索相关内容
 - **信息提取**：使用 LLM 根据标签配置提取结构化信息
 - **结果展示**：可视化展示提取的结构化数据
@@ -709,7 +718,7 @@ storage/
 │                            # chunks 数组: 每个 chunk 包含 chunk_id, page_number, chunk_index, content
 │
 ├── uploads/                 # 上传的原始文件
-│   └── {filename}          # PDF 或 Word 文件
+│   └── {filename}          # Multi-format files (pdf/docx/txt/md/csv/json/xlsx/pptx/eml)
 │
 ├── vector-cache/            # 向量缓存 (基于内容 SHA256 hash)
 │   └── {hash}.json         # 缓存向量列表，避免重复计算
@@ -1148,7 +1157,7 @@ SQLite → 后端: 返回标签 ID
 **2. 上传文档**
 
 ```
-用户 → 前端: 上传 PDF/Word 文件
+用户 → 前端: 上传 PDF/Word/TXT/Markdown/CSV/JSON/XLSX/PPTX/EML 文件
 前端 → 后端: POST /api/documents/upload
 后端 → SQLite: 创建文档记录 (status: processing)
 后端 → 前端: 返回文档信息
@@ -1487,8 +1496,8 @@ anything-extract/
 │   │       └── lancedb.py       # LanceDB 实现
 │   ├── utils/                    # 工具函数
 │   │   ├── document_parser.py   # 文档解析器
-│   │   │                        #   - PDF 解析 (PyPDF2/pdfplumber)
-│   │   │                        #   - Word 解析 (python-docx)
+│   │   │                        #   - PDF parsing (PyPDF2/pdfplumber/unstructured fallback)
+│   │   │                        #   - DOCX parsing (unstructured/python-docx fallback)
 │   │   └── text_splitter.py     # 文本分块器
 │   │                            #   - RecursiveCharacterTextSplitter
 │   ├── requirements.txt         # Python 依赖

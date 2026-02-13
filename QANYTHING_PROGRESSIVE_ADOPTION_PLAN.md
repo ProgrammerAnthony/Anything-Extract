@@ -491,3 +491,21 @@ anything-extract/
 - 不替换 FastAPI 主体；
 
 仅做渐进增强与可回退集成。
+
+
+### Stage 1 Execution Record (2026-02-13)
+
+- Status: completed.
+- Backend parser expansion implemented in `backend/utils/document_parser.py`.
+- QAnything loader logic reused in `backend/utils/loaders/csv_loader.py`, `backend/utils/loaders/json_loader.py`, `backend/utils/loaders/markdown_parser.py`.
+- Upload extension validation expanded in `backend/app/api/documents.py` for `pdf, docx, txt, md, csv, json, xlsx, pptx, eml`.
+- Frontend upload accepts expanded in:
+  - `frontend/components/ui/FileUploadDialog.tsx`
+  - `frontend/app/knowledge-bases/[id]/page.tsx`
+  - `frontend/app/documents/page.tsx`
+- Dependencies updated in:
+  - `backend/requirements.txt`
+  - `backend/pyproject.toml`
+- Architecture sync completed in `ARCHITECTURE.md` (Stage 1 update + supported type changes).
+- Storage and vector architecture unchanged: SQLite + LanceDB retained.
+

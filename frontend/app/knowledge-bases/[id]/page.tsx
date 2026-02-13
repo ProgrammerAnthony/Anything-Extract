@@ -288,7 +288,7 @@ export default function KnowledgeBaseDetailPage() {
         open={uploadDialogOpen}
         onClose={() => setUploadDialogOpen(false)}
         onConfirm={handleUpload}
-        accept=".pdf,.docx"
+        accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx,.pptx,.eml"
         maxSize={100}
         multiple={true}
       />
