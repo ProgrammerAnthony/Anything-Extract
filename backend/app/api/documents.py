@@ -23,6 +23,41 @@ import asyncio
 
 router = APIRouter()
 
+SUPPORTED_UPLOAD_EXTENSIONS = {"pdf", "docx", "txt", "md", "csv", "json", "xlsx", "pptx", "eml"}
+EXTENSION_MIME_TYPES = {
+    "pdf": {"application/pdf"},
+    "docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+    "txt": {"text/plain"},
+    "md": {"text/markdown", "text/x-markdown", "text/plain"},
+    "csv": {"text/csv", "application/csv", "text/plain"},
+    "json": {"application/json", "text/json", "text/plain"},
+    "xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+    "pptx": {"application/vnd.openxmlformats-officedocument.presentationml.presentation"},
+    "eml": {"message/rfc822", "text/plain", "application/octet-stream"},
+}
+
+
+def _resolve_upload_file_type(file: UploadFile) -> str:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    file_extension = Path(file.filename).suffix.lower().lstrip(".")
+    if file_extension not in SUPPORTED_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(SUPPORTED_UPLOAD_EXTENSIONS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {file_extension or 'unknown'}. Supported: {allowed}",
+        )
+
+    content_type = (file.content_type or "").lower()
+    expected_mimes = EXTENSION_MIME_TYPES.get(file_extension, set())
+    if content_type and content_type not in expected_mimes and content_type != "application/octet-stream":
+        document_logger.warning(
+            f"MIME mismatch for file upload: {file.filename}, extension={file_extension}, content_type={content_type}"
+        )
+
+    return file_extension
+
 
 @router.post("/upload", response_model=ApiResponse)
 async def upload_document(
@@ -36,12 +71,10 @@ async def upload_document(
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
     
-    # 验证文件类型
-    allowed_types = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="不支持的文件类型")
-    
-    # 保存文件
+    # Stage 1: validate and normalize upload extension
+    file_type = _resolve_upload_file_type(file)
+
+    # Save file
     upload_path = Path(settings.uploads_path)
     upload_path.mkdir(parents=True, exist_ok=True)
     
@@ -49,10 +82,7 @@ async def upload_document(
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
-    # 确定文件类型
-    file_type = "pdf" if file.content_type == "application/pdf" else "docx"
-    
-    # 创建文档记录
+    # Create document record
     document_logger.info(f"开始上传文档: {file.filename}, 知识库ID: {knowledge_base_id}")
     document = Document(
         knowledge_base_id=knowledge_base_id,

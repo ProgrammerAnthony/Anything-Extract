@@ -46,7 +46,7 @@ class Document(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     knowledge_base_id = Column(String, ForeignKey("knowledge_bases.id"), nullable=False)
     filename = Column(String, nullable=False)
-    file_type = Column(String, nullable=False)  # pdf, docx
+    file_type = Column(String, nullable=False)  # pdf, docx, txt, md, csv, json, xlsx, pptx, eml
     file_path = Column(String, nullable=False)
     json_path = Column(String, nullable=False)
     status = Column(String, default="processing")  # processing, completed, failed
