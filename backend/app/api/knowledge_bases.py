@@ -1,4 +1,4 @@
-"""Knowledge base management API."""
+"""知识库管理 API"""
 from __future__ import annotations
 
 import json
@@ -26,7 +26,7 @@ class KnowledgeBaseUpdate(BaseModel):
 
 @router.get("", response_model=ApiResponse)
 async def get_knowledge_bases(
-    search: Optional[str] = Query(None, description="search keyword"),
+    search: Optional[str] = Query(None, description="搜索关键词"),
     db: Session = Depends(get_db),
 ):
     query = db.query(KnowledgeBase)
@@ -52,7 +52,7 @@ async def get_knowledge_bases(
 async def get_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     return ApiResponse(
         success=True,
@@ -72,7 +72,7 @@ async def get_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
 async def create_knowledge_base(kb_data: KnowledgeBaseCreate, db: Session = Depends(get_db)):
     existing = db.query(KnowledgeBase).filter(KnowledgeBase.name == kb_data.name).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Knowledge base name already exists")
+        raise HTTPException(status_code=400, detail="知识库名称已存在")
 
     kb = KnowledgeBase(name=kb_data.name, is_default=db.query(KnowledgeBase).count() == 0)
     db.add(kb)
@@ -90,7 +90,7 @@ async def create_knowledge_base(kb_data: KnowledgeBaseCreate, db: Session = Depe
                 "updated_at": kb.updated_at,
             }
         },
-        message="Knowledge base created",
+        message="知识库创建成功",
     )
 
 
@@ -102,7 +102,7 @@ async def update_knowledge_base(
 ):
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     if kb_data.name:
         existing = (
@@ -111,7 +111,7 @@ async def update_knowledge_base(
             .first()
         )
         if existing:
-            raise HTTPException(status_code=400, detail="Knowledge base name already exists")
+            raise HTTPException(status_code=400, detail="知识库名称已存在")
         kb.name = kb_data.name
 
     db.commit()
@@ -128,7 +128,7 @@ async def update_knowledge_base(
                 "updated_at": kb.updated_at,
             }
         },
-        message="Knowledge base updated",
+        message="知识库更新成功",
     )
 
 
@@ -136,19 +136,19 @@ async def update_knowledge_base(
 async def delete_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     if db.query(KnowledgeBase).count() == 1:
-        raise HTTPException(status_code=400, detail="Cannot delete the last knowledge base")
+        raise HTTPException(status_code=400, detail="不能删除最后一个知识库")
 
     doc_count = db.query(Document).filter(Document.knowledge_base_id == kb_id).count()
     if doc_count > 0:
-        raise HTTPException(status_code=400, detail=f"Knowledge base still has {doc_count} documents")
+        raise HTTPException(status_code=400, detail=f"知识库中还有 {doc_count} 个文档，请先删除文档")
 
     db.delete(kb)
     db.commit()
 
-    return ApiResponse(success=True, message="Knowledge base deleted")
+    return ApiResponse(success=True, message="知识库已删除")
 
 
 @router.get("/{kb_id}/documents", response_model=ApiResponse)
@@ -161,7 +161,7 @@ async def get_knowledge_base_documents(
 ):
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     query = db.query(Document).filter(Document.knowledge_base_id == kb_id)
     if status:

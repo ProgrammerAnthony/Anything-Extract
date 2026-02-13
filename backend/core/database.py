@@ -122,7 +122,7 @@ def _ensure_default_kb(db):
     if default_kb:
         return default_kb
 
-    default_kb = KnowledgeBase(name="Default Knowledge Base", is_default=True)
+    default_kb = KnowledgeBase(name="默认知识库", is_default=True)
     db.add(default_kb)
     db.commit()
     db.refresh(default_kb)
@@ -192,7 +192,7 @@ def init_db():
 
         _ensure_default_kb(db)
     except Exception as exc:  # noqa: BLE001
-        print(f"db migration error: {exc}")
+        print(f"数据库迁移错误: {exc}")
         import traceback
 
         traceback.print_exc()

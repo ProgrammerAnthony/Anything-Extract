@@ -1,4 +1,4 @@
-"""Document management API."""
+"""文档管理 API"""
 from __future__ import annotations
 
 import asyncio
@@ -48,14 +48,14 @@ EXTENSION_MIME_TYPES = {
 
 def _resolve_upload_file_type(file: UploadFile) -> str:
     if not file.filename:
-        raise HTTPException(status_code=400, detail="Filename is required")
+        raise HTTPException(status_code=400, detail="文件名不能为空")
 
     file_extension = Path(file.filename).suffix.lower().lstrip(".")
     if file_extension not in SUPPORTED_UPLOAD_EXTENSIONS:
         allowed = ", ".join(sorted(SUPPORTED_UPLOAD_EXTENSIONS))
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {file_extension or 'unknown'}. Supported: {allowed}",
+            detail=f"不支持的文件类型: {file_extension or 'unknown'}，支持: {allowed}",
         )
 
     content_type = (file.content_type or "").lower()
@@ -93,16 +93,16 @@ async def _process_document_immediate(document_id: str) -> None:
     try:
         document = db_session.query(Document).filter(Document.id == document_id).first()
         if not document:
-            document_logger.error("Document not found for immediate ingest: %s", document_id)
+            document_logger.error("即时处理找不到文档: %s", document_id)
             return
 
         ingest_service = DocumentIngestService()
         await ingest_service.ingest_document(db_session, document)
         db_session.commit()
-        document_logger.info("Immediate ingest completed: %s", document_id)
+        document_logger.info("即时处理完成: %s", document_id)
     except Exception as exc:  # noqa: BLE001
         db_session.rollback()
-        error_msg = f"Immediate ingest failed: {exc}\n{traceback.format_exc()}"
+        error_msg = f"即时处理失败: {exc}\n{traceback.format_exc()}"
         document_logger.error(error_msg)
         debug_logger.error(error_msg)
 
@@ -112,7 +112,7 @@ async def _process_document_immediate(document_id: str) -> None:
                 document.status = "failed"
                 db_session.commit()
         except Exception as mark_exc:  # noqa: BLE001
-            document_logger.error("Failed to mark immediate ingest status: %s", mark_exc)
+            document_logger.error("即时处理状态写回失败: %s", mark_exc)
     finally:
         db_session.close()
 
@@ -126,7 +126,7 @@ async def upload_document(
 ):
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == knowledge_base_id).first()
     if not kb:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     file_type = _resolve_upload_file_type(file)
 
@@ -166,9 +166,9 @@ async def upload_document(
 
     if mode == "immediate":
         asyncio.create_task(_process_document_immediate(document.id))
-        message = "Upload accepted, document is processing in background"
+        message = "文档上传成功，正在后台处理"
     else:
-        message = "Upload accepted, document queued for worker"
+        message = "文档上传成功，已进入后台队列"
 
     return ApiResponse(
         success=True,
@@ -220,7 +220,7 @@ async def get_documents(
 async def get_document(document_id: str, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在")
 
     extraction_results = (
         db.query(ExtractionResult)
@@ -267,7 +267,7 @@ async def get_document(document_id: str, db: Session = Depends(get_db)):
 async def get_document_status(document_id: str, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在")
 
     progress_map = {"queued": 10, "processing": 70, "completed": 100, "failed": 0}
 
@@ -276,7 +276,7 @@ async def get_document_status(document_id: str, db: Session = Depends(get_db)):
         data=DocumentStatusResponse(
             status=document.status,
             progress=progress_map.get(document.status, 0),
-            message=f"Document status: {document.status}",
+            message=f"文档状态: {document.status}",
         ),
     )
 
@@ -285,7 +285,7 @@ async def get_document_status(document_id: str, db: Session = Depends(get_db)):
 async def retry_document_ingest(document_id: str, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在")
 
     try:
         job = ingest_queue_service.retry_document_job(db, document_id)
@@ -299,7 +299,7 @@ async def retry_document_ingest(document_id: str, db: Session = Depends(get_db))
     return ApiResponse(
         success=True,
         data={"document": _serialize_document(document, job), "ingest_job": ingest_queue_service.serialize_job(job)},
-        message="Document job queued for retry",
+        message="任务已重新入队",
     )
 
 
@@ -307,15 +307,15 @@ async def retry_document_ingest(document_id: str, db: Session = Depends(get_db))
 async def delete_document(document_id: str, db: Session = Depends(get_db)):
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档不存在")
 
     try:
         try:
             vector_db = LanceDBProvider(settings.lance_db_path)
             await vector_db.delete_by_document_id(document_id)
         except Exception as exc:  # noqa: BLE001
-            document_logger.warning("Failed to delete vectors: %s", exc)
-            debug_logger.warning("Failed to delete vectors: %s\n%s", exc, traceback.format_exc())
+            document_logger.warning("删除向量失败: %s", exc)
+            debug_logger.warning("删除向量失败: %s\n%s", exc, traceback.format_exc())
 
         db.query(DocumentVector).filter(DocumentVector.document_id == document_id).delete()
         db.query(ExtractionResult).filter(ExtractionResult.document_id == document_id).delete()
@@ -328,10 +328,10 @@ async def delete_document(document_id: str, db: Session = Depends(get_db)):
         db.delete(document)
         db.commit()
 
-        return ApiResponse(success=True, message="Document and related data deleted")
+        return ApiResponse(success=True, message="文档及关联数据已删除")
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        error_msg = f"Failed to delete document: {exc}\n{traceback.format_exc()}"
+        error_msg = f"删除文档失败: {exc}\n{traceback.format_exc()}"
         document_logger.error(error_msg)
         debug_logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=f"Failed to delete document: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"删除文档失败: {exc}") from exc

@@ -31,7 +31,7 @@ interface DocumentItem {
 
 const ACTIVE_STATUSES = new Set(['queued', 'processing']);
 
-function mergeDocuments(prev: DocumentItem[], incoming: DocumentItem[]) {
+function merge文档集(prev: DocumentItem[], incoming: DocumentItem[]) {
   const map = new Map<string, DocumentItem>();
   prev.forEach((doc) => map.set(doc.id, doc));
   incoming.forEach((doc) => map.set(doc.id, doc));
@@ -46,7 +46,7 @@ export default function KnowledgeBaseDetailPage() {
   const { secondaryCollapsed, onOpenSidebar } = usePageContext();
 
   const [knowledgeBase, setKnowledgeBase] = useState<{ id: string; name: string } | null>(null);
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [documents, set文档集] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -60,20 +60,20 @@ export default function KnowledgeBaseDetailPage() {
         setKnowledgeBase(response.data.data.knowledge_base);
       }
     } catch (error) {
-      console.error('Failed to load knowledge base:', error);
+      console.error('加载知识库失败:', error);
     }
   }, [kbId]);
 
-  const loadDocuments = useCallback(
+  const load文档集 = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const response = await knowledgeBaseApi.getDocuments(kbId);
+        const response = await knowledgeBaseApi.get文档集(kbId);
         if (response.data.success) {
-          setDocuments(response.data.data.documents || []);
+          set文档集(response.data.data.documents || []);
         }
       } catch (error) {
-        console.error('Failed to load documents:', error);
+        console.error('加载文档失败:', error);
       } finally {
         if (!silent) setLoading(false);
       }
@@ -84,19 +84,19 @@ export default function KnowledgeBaseDetailPage() {
   useEffect(() => {
     if (!kbId) return;
     loadKnowledgeBase();
-    loadDocuments();
-  }, [kbId, loadKnowledgeBase, loadDocuments]);
+    load文档集();
+  }, [kbId, loadKnowledgeBase, load文档集]);
 
   useEffect(() => {
     const hasActiveJob = documents.some((doc) => ACTIVE_STATUSES.has(doc.status));
     if (!hasActiveJob) return;
 
     const timer = setInterval(() => {
-      loadDocuments(true);
+      load文档集(true);
     }, 2000);
 
     return () => clearInterval(timer);
-  }, [documents, loadDocuments]);
+  }, [documents, load文档集]);
 
   const handleUpload = async (files: File[], mode: UploadProcessingMode) => {
     setUploading(true);
@@ -110,13 +110,13 @@ export default function KnowledgeBaseDetailPage() {
       }
 
       if (uploadedDocs.length > 0) {
-        setDocuments((prev) => mergeDocuments(prev, uploadedDocs));
+        set文档集((prev) => merge文档集(prev, uploadedDocs));
       }
 
-      loadDocuments(true);
+      load文档集(true);
     } catch (error) {
-      console.error('Upload failed:', error);
-      alert('Upload failed. Please try again.');
+      console.error('上传失败:', error);
+      alert('上传失败，请稍后重试');
       throw error;
     } finally {
       setUploading(false);
@@ -128,33 +128,33 @@ export default function KnowledgeBaseDetailPage() {
       const response = await documentApi.retry(documentId);
       if (response.data.success && response.data.data?.document) {
         const retriedDoc = response.data.data.document as DocumentItem;
-        setDocuments((prev) => mergeDocuments(prev, [retriedDoc]));
+        set文档集((prev) => merge文档集(prev, [retriedDoc]));
       }
-      loadDocuments(true);
+      load文档集(true);
     } catch (error: any) {
-      console.error('Retry failed:', error);
-      alert(error?.response?.data?.detail || 'Retry failed');
+      console.error('重试失败:', error);
+      alert(error?.response?.data?.detail || '重试失败');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this document?')) return;
+    if (!confirm('确定要删除这个文档吗？')) return;
 
     try {
       await documentApi.delete(id);
-      setDocuments((prev) => prev.filter((doc) => doc.id !== id));
+      set文档集((prev) => prev.filter((doc) => doc.id !== id));
     } catch (error) {
-      console.error('Delete failed:', error);
-      alert('Delete failed. Please try again.');
+      console.error('删除失败:', error);
+      alert('删除失败，请稍后重试');
     }
   };
 
-  const filteredDocuments = useMemo(
+  const filtered文档集 = useMemo(
     () => documents.filter((doc) => doc.filename.toLowerCase().includes(searchQuery.toLowerCase())),
     [documents, searchQuery],
   );
 
-  const getStatusColor = (status: string) => {
+  const get状态Color = (status: string) => {
     switch (status) {
       case 'queued':
         return 'text-slate-700 bg-slate-100';
@@ -169,16 +169,16 @@ export default function KnowledgeBaseDetailPage() {
     }
   };
 
-  const getStatusText = (status: string) => {
+  const get状态Text = (status: string) => {
     switch (status) {
       case 'queued':
-        return 'Queued';
+        return '排队中';
       case 'processing':
-        return 'Processing';
+        return '处理中';
       case 'completed':
-        return 'Completed';
+        return '已完成';
       case 'failed':
-        return 'Failed';
+        return '失败';
       default:
         return status;
     }
@@ -187,7 +187,7 @@ export default function KnowledgeBaseDetailPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <div className="text-gray-500">Loading...</div>
+        <div className="text-gray-500">加载中...</div>
       </div>
     );
   }
@@ -195,7 +195,7 @@ export default function KnowledgeBaseDetailPage() {
   return (
     <div className="flex h-full flex-col bg-[#f3f6fd]">
       <PageHeader
-        title={knowledgeBase?.name || 'Knowledge Base'}
+        title={knowledgeBase?.name || '知识库'}
         secondaryCollapsed={secondaryCollapsed}
         onOpenSidebar={onOpenSidebar}
       />
@@ -207,7 +207,7 @@ export default function KnowledgeBaseDetailPage() {
 
             <div className="mb-4 border-b border-gray-200">
               <button className="border-b-2 border-[#5147e5] px-4 py-2 text-sm font-medium text-[#5147e5]">
-                Documents
+                文档集
               </button>
             </div>
 
@@ -216,7 +216,7 @@ export default function KnowledgeBaseDetailPage() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
                   type="text"
-                  placeholder="Search documents"
+                  placeholder="搜索文档"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="rounded-lg border border-gray-300 py-2 pl-10 pr-4 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#5147e5]"
@@ -228,40 +228,40 @@ export default function KnowledgeBaseDetailPage() {
                 className="flex items-center gap-2 rounded-lg bg-[#5147e5] px-4 py-2 text-white transition-colors hover:bg-[#4338ca] disabled:cursor-not-allowed disabled:bg-gray-300"
               >
                 <Upload size={18} />
-                {uploading ? 'Uploading...' : 'Upload'}
+                {uploading ? '上传中...' : '上传文档'}
               </button>
             </div>
           </div>
 
-          {filteredDocuments.length > 0 ? (
+          {filtered文档集.length > 0 ? (
             <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
               <table className="w-full">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Document ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Filename</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Queue</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Created</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">文档ID</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">文档名</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">状态</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">队列信息</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">创建时间</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredDocuments.map((doc) => (
+                  {filtered文档集.map((doc) => (
                     <tr key={doc.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-xs text-gray-700">{doc.id}</td>
                       <td className="px-4 py-3 text-sm text-gray-900">{doc.filename}</td>
                       <td className="px-4 py-3">
-                        <span className={`rounded px-2 py-1 text-xs ${getStatusColor(doc.status)}`}>
-                          {getStatusText(doc.status)}
+                        <span className={`rounded px-2 py-1 text-xs ${get状态Color(doc.status)}`}>
+                          {get状态Text(doc.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">
                         {doc.ingest_job ? (
                           <div>
                             <div>
-                              {doc.ingest_job.processing_mode === 'queue' ? 'Queue worker' : 'Immediate'} | 
-                              attempt {Math.min(doc.ingest_job.attempts, doc.ingest_job.max_attempts)}/
+                              {doc.ingest_job.processing_mode === 'queue' ? '队列信息 worker' : 'Immediate'} | 
+                              尝试 {Math.min(doc.ingest_job.attempts, doc.ingest_job.max_attempts)}/
                               {doc.ingest_job.max_attempts}
                             </div>
                             {doc.ingest_job.error_msg && (
@@ -280,7 +280,7 @@ export default function KnowledgeBaseDetailPage() {
                           <Link
                             href={`/documents/${doc.id}`}
                             className="rounded p-1.5 text-gray-600 transition-colors hover:bg-gray-50 hover:text-[#5147e5]"
-                            title="View"
+                            title="查看"
                           >
                             <Eye size={16} />
                           </Link>
@@ -288,7 +288,7 @@ export default function KnowledgeBaseDetailPage() {
                             <button
                               onClick={() => handleRetry(doc.id)}
                               className="rounded p-1.5 text-gray-600 transition-colors hover:bg-gray-50 hover:text-amber-600"
-                              title="Retry"
+                              title="重试"
                             >
                               <RefreshCw size={16} />
                             </button>
@@ -296,7 +296,7 @@ export default function KnowledgeBaseDetailPage() {
                           <button
                             onClick={() => handleDelete(doc.id)}
                             className="rounded p-1.5 text-gray-600 transition-colors hover:bg-gray-50 hover:text-red-500"
-                            title="Delete"
+                            title="删除"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -310,7 +310,7 @@ export default function KnowledgeBaseDetailPage() {
           ) : (
             <div className="rounded-lg border border-gray-200 bg-white py-16 text-center">
               <FileText className="mx-auto mb-4 text-gray-300" size={48} />
-              <p className="text-gray-500">No data</p>
+              <p className="text-gray-500">暂无数据</p>
             </div>
           )}
         </div>

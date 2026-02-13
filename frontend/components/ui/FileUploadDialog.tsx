@@ -41,13 +41,13 @@ export default function FileUploadDialog({
     const validFiles: File[] = [];
     Array.from(selectedFiles).forEach((file) => {
       if (file.size > maxSize * 1024 * 1024) {
-        alert(`${file.name} is too large. Max size is ${maxSize}MB`);
+        alert(`${file.name} 文件过大，最大支持 ${maxSize}MB`);
         return;
       }
 
       const extension = `.${file.name.split('.').pop()?.toLowerCase()}`;
       if (accept && !accept.split(',').includes(extension)) {
-        alert(`${file.name} has an unsupported file extension`);
+        alert(`${file.name} 文件类型不支持`);
         return;
       }
 
@@ -86,7 +86,7 @@ export default function FileUploadDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
       <div className="mx-4 w-full max-w-md rounded-lg bg-white shadow-xl">
         <div className="flex items-center justify-between border-b p-6">
-          <h2 className="text-lg font-semibold">Upload Documents</h2>
+          <h2 className="text-lg font-semibold">上传文档</h2>
           <button
             onClick={onClose}
             className="text-gray-400 transition-colors hover:text-gray-600"
@@ -127,18 +127,18 @@ export default function FileUploadDialog({
 
             <Upload size={24} className={`mb-2 ${isDragging ? 'text-[#5147e5]' : 'text-gray-400'}`} />
             <p className="px-4 text-center text-sm text-gray-600">
-              Drag files here, or <span className="cursor-pointer text-[#5147e5]">click to browse</span>
+              将文件拖到此处，或 <span className="cursor-pointer text-[#5147e5]">点击上传</span>
             </p>
             <p className="mt-2 px-4 text-center text-xs text-gray-400">
-              Supported: {accept.replace(/\./g, '').replace(/,/g, ', ')}
+              支持格式: {accept.replace(/\./g, '').replace(/,/g, '、')}
               <br />
-              Max per file: {maxSize}MB
+              单文件大小上限: {maxSize}MB
             </p>
           </div>
 
           {showProcessingModeToggle && (
             <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <p className="mb-2 text-xs font-medium text-gray-700">Processing Mode</p>
+              <p className="mb-2 text-xs font-medium text-gray-700">处理模式</p>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -149,7 +149,7 @@ export default function FileUploadDialog({
                       : 'bg-white text-gray-700 hover:bg-gray-100'
                   }`}
                 >
-                  Queue Worker (Recommended)
+                  后台队列（推荐）
                 </button>
                 <button
                   type="button"
@@ -160,7 +160,7 @@ export default function FileUploadDialog({
                       : 'bg-white text-gray-700 hover:bg-gray-100'
                   }`}
                 >
-                  Immediate (Legacy)
+                  即时处理（旧）
                 </button>
               </div>
             </div>
@@ -198,14 +198,14 @@ export default function FileUploadDialog({
             className="px-4 py-2 text-gray-600 transition-colors hover:text-gray-800"
             disabled={submitting}
           >
-            Cancel
+            取消
           </button>
           <button
             onClick={handleConfirm}
             disabled={files.length === 0 || submitting}
             className="rounded bg-[#5147e5] px-4 py-2 text-white transition-colors hover:bg-[#4338ca] disabled:cursor-not-allowed disabled:bg-gray-300"
           >
-            {submitting ? 'Uploading...' : 'Confirm'}
+            {submitting ? '上传中...' : '确定'}
           </button>
         </div>
       </div>
