@@ -2,10 +2,10 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
-langchain>=0.1.0
-langchain-community>=0.0.20
-langchain-core>=0.1.0
-langchain-text-splitters>=0.0.1
+langchain>=1.0.0
+langchain-community>=0.3.0
+langchain-core>=0.3.0
+langchain-text-splitters>=0.3.0
 ollama>=0.1.0
 lancedb>=0.4.0
 pypdf2>=3.0.0
@@ -24,4 +24,6 @@ pyarrow>=14.0.0
 openpyxl>=3.1.0
 python-pptx>=0.6.23
 mistune>=3.0.0
-unstructured>=0.14.0
+unstructured==0.12.4
+unstructured[pptx]==0.12.4
+unstructured[md]==0.12.4

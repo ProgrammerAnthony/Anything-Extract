@@ -1,11 +1,6 @@
 """文本分块工具"""
 from typing import List, Any
-try:
-    # 新版本 langchain (>=0.1.0)
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError:
-    # 旧版本 langchain (<0.1.0)
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 class TextSplitter:

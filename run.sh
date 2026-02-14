@@ -105,10 +105,33 @@ else
     fi
     
     if [ -n "$VENV_PYTHON_CHECK" ] && [ -f "$VENV_PYTHON_CHECK" ]; then
-        # 检查 requirements.txt 中的所有依赖是否已安装
+        # 检查依赖配置文件是否已更新
+        REQUIREMENTS_UPDATED=0
+        INSTALL_MARKER=".venv/.requirements_installed"
+        DEPENDENCY_FILE=""
+        
+        # 优先使用 requirements.txt，如果没有则使用 pyproject.toml
         if [ -f "requirements.txt" ]; then
+            DEPENDENCY_FILE="requirements.txt"
             echo "检查 requirements.txt 中的依赖包..."
-            
+        elif [ -f "pyproject.toml" ]; then
+            DEPENDENCY_FILE="pyproject.toml"
+            echo "检查 pyproject.toml 中的依赖包..."
+        fi
+        
+        if [ -n "$DEPENDENCY_FILE" ]; then
+            # 检查依赖文件是否被更新
+            if [ -f "$INSTALL_MARKER" ]; then
+                # 比较依赖文件和标记文件的修改时间
+                if [ "$DEPENDENCY_FILE" -nt "$INSTALL_MARKER" ]; then
+                    echo "检测到 ${DEPENDENCY_FILE} 已更新（比上次安装时间新），需要重新安装依赖..."
+                    REQUIREMENTS_UPDATED=1
+                fi
+            fi
+        fi
+        
+        # 检查依赖是否已安装
+        if [ -n "$DEPENDENCY_FILE" ]; then
             # 激活虚拟环境以使用 pip
             if [ -f ".venv/bin/activate" ]; then
                 source .venv/bin/activate
@@ -117,11 +140,13 @@ else
             fi
             
             # 检查关键包是否已安装（快速检查）
-            KEY_PACKAGES="fastapi uvicorn pandas lancedb"
+            KEY_PACKAGES="fastapi uvicorn pandas lancedb langchain langchain_community langchain_core"
             MISSING_KEY_PACKAGES=""
             
             for pkg in $KEY_PACKAGES; do
-                if ! $VENV_PYTHON_CHECK -c "import ${pkg}" 2>/dev/null; then
+                # 处理包名中的连字符（如 langchain-community -> langchain_community）
+                import_name=$(echo "$pkg" | tr '-' '_')
+                if ! $VENV_PYTHON_CHECK -c "import ${import_name}" 2>/dev/null; then
                     MISSING_KEY_PACKAGES="${MISSING_KEY_PACKAGES} ${pkg}"
                 fi
             done
@@ -129,16 +154,20 @@ else
             if [ -n "$MISSING_KEY_PACKAGES" ]; then
                 echo "检测到缺失的关键依赖包:${MISSING_KEY_PACKAGES}"
                 BACKEND_NEED_INSTALL=1
+            elif [ $REQUIREMENTS_UPDATED -eq 1 ]; then
+                echo "${DEPENDENCY_FILE} 已更新，需要重新安装依赖以确保版本匹配..."
+                BACKEND_NEED_INSTALL=1
             else
-                # 关键包都存在，但可能还有其他包缺失，运行 pip install 会自动处理
-                # 为了不每次都运行，我们假设如果关键包都在，其他包也应该都在
-                # 如果用户添加了新包，下次运行时会自动安装
+                # 如果标记文件不存在但关键包都在，创建标记文件
+                if [ ! -f "$INSTALL_MARKER" ]; then
+                    touch "$INSTALL_MARKER"
+                fi
                 echo "✅ 后端依赖已全部安装"
             fi
             
             deactivate 2>/dev/null
         else
-            # 如果没有 requirements.txt，检查关键依赖
+            # 如果没有依赖配置文件，检查关键依赖
             if ! $VENV_PYTHON_CHECK -c "import uvicorn" 2>/dev/null; then
                 echo "虚拟环境存在但关键依赖未安装，需要安装依赖..."
                 BACKEND_NEED_INSTALL=1
@@ -200,6 +229,15 @@ if [ $BACKEND_NEED_INSTALL -eq 1 ]; then
     
     if [ $? -eq 0 ]; then
         echo "✅ 后端依赖安装完成"
+        
+        # 创建标记文件，记录依赖安装时间
+        INSTALL_MARKER=".venv/.requirements_installed"
+        touch "$INSTALL_MARKER"
+        DEPENDENCY_FILE="requirements.txt"
+        if [ ! -f "$DEPENDENCY_FILE" ] && [ -f "pyproject.toml" ]; then
+            DEPENDENCY_FILE="pyproject.toml"
+        fi
+        echo "已记录依赖安装时间，下次运行时会自动检测 ${DEPENDENCY_FILE} 的更新"
     else
         echo "❌ 后端依赖安装失败"
         echo ""

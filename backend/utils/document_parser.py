@@ -120,7 +120,7 @@ class DocumentParser:
                     pages.append({"page_number": page_num, "content": page.extract_text() or ""})
                 return self._build_result(file_path=file_path, pages=pages)
         except Exception:
-            loader = UnstructuredFileLoader(file_path, strategy="fast")
+            loader = UnstructuredFileLoader(file_path, mode="fast")
             docs = loader.load()
             return self._build_result(
                 file_path=file_path,
@@ -130,7 +130,7 @@ class DocumentParser:
 
     async def _parse_docx(self, file_path: str) -> Dict[str, Any]:
         try:
-            loader = UnstructuredWordDocumentLoader(file_path, strategy="fast")
+            loader = UnstructuredWordDocumentLoader(file_path, mode="fast")
             docs = loader.load()
             return self._build_result(file_path=file_path, pages=self._docs_to_pages(docs))
         except Exception:
@@ -169,7 +169,7 @@ class DocumentParser:
                 pages.append({"page_number": idx, "content": merged})
             return self._build_result(file_path=file_path, pages=pages)
         except Exception:
-            loader = UnstructuredFileLoader(file_path, strategy="fast")
+            loader = UnstructuredFileLoader(file_path, mode="fast")
             docs = loader.load()
             return self._build_result(file_path=file_path, pages=self._docs_to_pages(docs))
 
@@ -192,22 +192,22 @@ class DocumentParser:
         if pages:
             return self._build_result(file_path=file_path, pages=pages)
 
-        loader = UnstructuredFileLoader(file_path, strategy="fast")
+        loader = UnstructuredFileLoader(file_path, mode="fast")
         docs = loader.load()
         return self._build_result(file_path=file_path, pages=self._docs_to_pages(docs))
 
     async def _parse_pptx(self, file_path: str) -> Dict[str, Any]:
         try:
-            loader = UnstructuredPowerPointLoader(file_path, strategy="fast")
+            loader = UnstructuredPowerPointLoader(file_path, mode="fast")
             docs = loader.load()
         except Exception:
-            loader = UnstructuredFileLoader(file_path, strategy="fast")
+            loader = UnstructuredFileLoader(file_path, mode="fast")
             docs = loader.load()
         return self._build_result(file_path=file_path, pages=self._docs_to_pages(docs))
 
     async def _parse_eml(self, file_path: str) -> Dict[str, Any]:
         try:
-            loader = UnstructuredEmailLoader(file_path, strategy="fast")
+            loader = UnstructuredEmailLoader(file_path, mode="fast")
             docs = loader.load()
         except Exception:
             loader = TextLoader(file_path, autodetect_encoding=True)

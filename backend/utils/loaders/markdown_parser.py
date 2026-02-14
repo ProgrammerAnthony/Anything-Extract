@@ -1,5 +1,5 @@
 import random
-from langchain.schema.document import Document
+from langchain_core.documents import Document
 import re
 # import json
 RANDOM_NUMBER_SET = set()
