@@ -32,7 +32,7 @@ from utils.logging import debug_logger, document_logger
 router = APIRouter()
 ingest_queue_service = IngestQueueService()
 
-SUPPORTED_UPLOAD_EXTENSIONS = {"pdf", "docx", "txt", "md", "csv", "json", "xlsx", "pptx", "eml"}
+SUPPORTED_UPLOAD_EXTENSIONS = {"pdf", "docx", "txt", "md", "csv", "json", "xlsx", "pptx", "eml", "jpg", "jpeg", "png"}
 EXTENSION_MIME_TYPES = {
     "pdf": {"application/pdf"},
     "docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
@@ -43,6 +43,9 @@ EXTENSION_MIME_TYPES = {
     "xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
     "pptx": {"application/vnd.openxmlformats-officedocument.presentationml.presentation"},
     "eml": {"message/rfc822", "text/plain", "application/octet-stream"},
+    "jpg": {"image/jpeg"},
+    "jpeg": {"image/jpeg"},
+    "png": {"image/png"},
 }
 
 

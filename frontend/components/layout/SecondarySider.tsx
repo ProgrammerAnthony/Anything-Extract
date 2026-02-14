@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Tag, Search, FolderOpen, Edit2, Trash2, Check, X, ChevronLeft,PanelRightOpen, ChevronRight, ChevronLeftIcon } from 'lucide-react';
+import { Tag, Search, FolderOpen, Edit2, Trash2, Check, X, ChevronLeft,PanelRightOpen, ChevronRight, ChevronLeftIcon, Settings } from 'lucide-react';
 import { knowledgeBaseApi } from '@/lib/api';
 
 // 可复用的二级侧边栏顶部组件
@@ -232,6 +232,18 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
           >
             <Search size={16} className={collapsed ? '' : 'mr-3'} />
             {!collapsed && <span className="text-sm">信息提取</span>}
+          </Link>
+          <Link
+            href="/settings"
+            className={`
+              block h-10 rounded-lg flex items-center px-3 mb-2
+              ${collapsed ? 'justify-center' : ''}
+              bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors
+            `}
+            title={collapsed ? '系统设置' : ''}
+          >
+            <Settings size={16} className={collapsed ? '' : 'mr-3'} />
+            {!collapsed && <span className="text-sm">系统设置</span>}
           </Link>
         </div>
       </div>
