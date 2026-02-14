@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, FileText, RefreshCw, Search, Trash2, Upload } from 'lucide-react';
@@ -52,6 +52,7 @@ export default function KnowledgeBaseDetailPage() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [processingMode, setProcessingMode] = useState<UploadProcessingMode>('queue');
   const [searchQuery, setSearchQuery] = useState('');
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadKnowledgeBase = useCallback(async () => {
     try {
@@ -68,7 +69,7 @@ export default function KnowledgeBaseDetailPage() {
     async (silent = false) => {
       if (!silent) setLoading(true);
       try {
-        const response = await knowledgeBaseApi.get文档集(kbId);
+        const response = await knowledgeBaseApi.getDocuments(kbId, { page: 1, page_size: 100 });
         if (response.data.success) {
           set文档集(response.data.data.documents || []);
         }
@@ -87,15 +88,35 @@ export default function KnowledgeBaseDetailPage() {
     load文档集();
   }, [kbId, loadKnowledgeBase, load文档集]);
 
+  // 轮询逻辑：当有活跃任务时自动刷新
   useEffect(() => {
-    const hasActiveJob = documents.some((doc) => ACTIVE_STATUSES.has(doc.status));
+    // 清除之前的定时器
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    // 检查是否有活跃的任务（排队中或处理中）
+    const hasActiveJob = documents.some((doc) => {
+      const docStatus = doc.status;
+      const jobStatus = doc.ingest_job?.status;
+      // 检查文档状态或job状态是否为活跃状态
+      return ACTIVE_STATUSES.has(docStatus) || (jobStatus && ACTIVE_STATUSES.has(jobStatus));
+    });
+    
     if (!hasActiveJob) return;
 
-    const timer = setInterval(() => {
+    // 启动轮询
+    pollingIntervalRef.current = setInterval(() => {
       load文档集(true);
     }, 2000);
 
-    return () => clearInterval(timer);
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
   }, [documents, load文档集]);
 
   const handleUpload = async (files: File[], mode: UploadProcessingMode) => {

@@ -47,6 +47,7 @@ class IngestQueueService:
             job.finished_at = None
             job.started_at = None
             job.max_attempts = self.max_attempts
+            document_logger.info("Requeued existing job: document_id=%s job_id=%s", document_id, job.id)
         else:
             job = DocumentIngestJob(
                 document_id=document_id,
@@ -56,6 +57,7 @@ class IngestQueueService:
                 processing_mode=mode,
             )
             db.add(job)
+            document_logger.info("Created new ingest job: document_id=%s job_id=%s mode=%s", document_id, job.id, mode)
 
         document = db.query(Document).filter(Document.id == document_id).first()
         if document:
@@ -119,46 +121,59 @@ class IngestQueueService:
             db.commit()
 
     def claim_next_job(self, db: Session, worker_id: str) -> Optional[DocumentIngestJob]:
+        """Claim next queued job (QAnything style: query one, update immediately)."""
         self._requeue_stale_processing_jobs(db)
 
-        queued_jobs = (
+        # QAnything style: query one job at a time, then update immediately
+        candidate = (
             db.query(DocumentIngestJob)
             .filter(DocumentIngestJob.status == "queued")
             .order_by(DocumentIngestJob.created_at.asc())
-            .limit(20)
-            .all()
+            .first()
         )
-        for candidate in queued_jobs:
-            now = datetime.utcnow()
-            updated = (
-                db.query(DocumentIngestJob)
-                .filter(
-                    DocumentIngestJob.id == candidate.id,
-                    DocumentIngestJob.status == "queued",
-                )
-                .update(
-                    {
-                        DocumentIngestJob.status: "processing",
-                        DocumentIngestJob.worker_id: worker_id,
-                        DocumentIngestJob.started_at: now,
-                        DocumentIngestJob.finished_at: None,
-                        DocumentIngestJob.error_msg: None,
-                        DocumentIngestJob.attempts: candidate.attempts + 1,
-                    },
-                    synchronize_session=False,
-                )
+        
+        if not candidate:
+            return None
+
+        # Try to atomically claim this job
+        now = datetime.utcnow()
+        updated = (
+            db.query(DocumentIngestJob)
+            .filter(
+                DocumentIngestJob.id == candidate.id,
+                DocumentIngestJob.status == "queued",  # Double-check status hasn't changed
             )
-            if not updated:
-                db.rollback()
-                continue
+            .update(
+                {
+                    DocumentIngestJob.status: "processing",
+                    DocumentIngestJob.worker_id: worker_id,
+                    DocumentIngestJob.started_at: now,
+                    DocumentIngestJob.finished_at: None,
+                    DocumentIngestJob.error_msg: None,
+                    DocumentIngestJob.attempts: candidate.attempts + 1,
+                },
+                synchronize_session=False,
+            )
+        )
+        
+        if not updated:
+            # Another worker claimed it, try again next time
+            db.rollback()
+            document_logger.debug("Job %s already claimed by another worker", candidate.id)
+            return None
 
-            document = db.query(Document).filter(Document.id == candidate.document_id).first()
-            if document:
-                document.status = "processing"
-            db.commit()
-            return db.query(DocumentIngestJob).filter(DocumentIngestJob.id == candidate.id).first()
-
-        return None
+        # Update document status
+        document = db.query(Document).filter(Document.id == candidate.document_id).first()
+        if document:
+            document.status = "processing"
+        
+        db.commit()
+        
+        # Refresh and return the claimed job
+        claimed_job = db.query(DocumentIngestJob).filter(DocumentIngestJob.id == candidate.id).first()
+        if claimed_job:
+            document_logger.info("Claimed job: id=%s document_id=%s worker=%s", claimed_job.id, claimed_job.document_id, worker_id)
+        return claimed_job
 
     def _mark_job_failed_or_retry(self, db: Session, job_id: str, error_msg: str) -> None:
         job = db.query(DocumentIngestJob).filter(DocumentIngestJob.id == job_id).first()
@@ -217,10 +232,12 @@ class IngestQueueService:
             self._mark_job_failed_or_retry(db, job.id, str(exc))
 
     async def process_next_job(self, db: Session, worker_id: str) -> bool:
+        """Process next job if available (QAnything style)."""
         job = self.claim_next_job(db, worker_id)
         if not job:
             return False
 
+        document_logger.info("Processing job: id=%s document_id=%s worker=%s", job.id, job.document_id, worker_id)
         await self.process_job(db, job)
         return True
 

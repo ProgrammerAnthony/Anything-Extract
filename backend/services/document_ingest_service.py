@@ -36,7 +36,7 @@ class DocumentIngestService:
                 )
 
         document_logger.info(
-            "???????: %s, chunks=%s",
+            "文档分块完成: document_id=%s, chunks=%s",
             document.id,
             len(all_chunks_data),
         )
