@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     default_retrieval_method: str = "basic"
     default_top_k: int = 5
     enable_rerank: bool = False
+    # Stage 2 ingest queue settings
+    ingest_default_mode: str = "queue"  # queue | immediate
+    ingest_queue_poll_interval: float = 1.0
+    ingest_job_max_attempts: int = 3
+    ingest_job_lock_timeout_seconds: int = 900
     
     # 文本分割
     chunk_size: int = 1000

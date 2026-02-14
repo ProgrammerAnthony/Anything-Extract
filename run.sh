@@ -9,6 +9,54 @@ echo ""
 
 # 检查 Python
 echo "检查 Python..."
+WITH_INGEST_SERVER=1
+INGEST_MODE="queue"
+
+for arg in "$@"; do
+    case "$arg" in
+        --with-ingest-server|--with-queue)
+            WITH_INGEST_SERVER=1
+            ;;
+        --without-ingest-server|--without-queue)
+            WITH_INGEST_SERVER=0
+            ;;
+        --queue-mode)
+            INGEST_MODE="queue"
+            ;;
+        --immediate-mode)
+            INGEST_MODE="immediate"
+            ;;
+        -h|--help)
+            echo "Usage: ./run.sh [--with-ingest-server|--without-ingest-server] [--queue-mode|--immediate-mode]"
+            echo ""
+            echo "  --with-ingest-server / --with-queue       Start Stage 2 ingest worker (default)"
+            echo "  --without-ingest-server / --without-queue Skip Stage 2 ingest worker"
+            echo "  --queue-mode                               Upload defaults to queue mode (default)"
+            echo "  --immediate-mode                           Upload defaults to immediate mode"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Use --help to view supported options"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$WITH_INGEST_SERVER" -eq 0 ] && [ "$INGEST_MODE" = "queue" ]; then
+    echo "[warn] ingest server is disabled, fallback to immediate mode to avoid queued backlog"
+    INGEST_MODE="immediate"
+fi
+
+export INGEST_DEFAULT_MODE="$INGEST_MODE"
+
+echo "Upload default mode: $INGEST_DEFAULT_MODE"
+if [ "$WITH_INGEST_SERVER" -eq 1 ]; then
+    echo "Ingest server: enabled"
+else
+    echo "Ingest server: disabled"
+fi
+
 PYTHON_CMD=""
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
@@ -668,13 +716,11 @@ echo "检查 Ollama 服务..."
 echo "=========================================="
 check_ollama_models
 
-# 启动服务
 echo ""
 echo "=========================================="
-echo "启动服务..."
+echo "Starting services..."
 echo "=========================================="
 
-# 检测 Python 命令
 PYTHON_CMD="python3"
 if ! command -v python3 &> /dev/null; then
     if command -v python &> /dev/null; then
@@ -682,11 +728,9 @@ if ! command -v python3 &> /dev/null; then
     fi
 fi
 
-# 启动后端
-echo "启动后端服务..."
+echo "Starting backend service..."
 cd backend
 
-# 激活虚拟环境
 VENV_PYTHON=""
 if [ -f ".venv/bin/activate" ]; then
     source .venv/bin/activate
@@ -696,20 +740,26 @@ elif [ -f ".venv/Scripts/activate" ]; then
     VENV_PYTHON=".venv/Scripts/python.exe"
 fi
 
-# 使用虚拟环境中的 Python，如果激活失败则使用系统 Python
+BACKEND_PYTHON_CMD="$PYTHON_CMD"
 if [ -n "$VENV_PYTHON" ] && [ -f "$VENV_PYTHON" ]; then
-    $VENV_PYTHON main.py &
-else
-    $PYTHON_CMD main.py &
+    BACKEND_PYTHON_CMD="$VENV_PYTHON"
 fi
+
+$BACKEND_PYTHON_CMD main.py &
 BACKEND_PID=$!
+
+INGEST_PID=""
+if [ "$WITH_INGEST_SERVER" -eq 1 ]; then
+    echo "Starting ingest worker..."
+    INGEST_DEFAULT_MODE=queue $BACKEND_PYTHON_CMD workers/ingest_worker.py &
+    INGEST_PID=$!
+fi
+
 cd ..
 
-# 等待后端启动
 sleep 3
 
-# 启动前端
-echo "启动前端服务..."
+echo "Starting frontend service..."
 cd frontend
 PORT=3001 npm run dev &
 FRONTEND_PID=$!
@@ -717,19 +767,26 @@ cd ..
 
 echo ""
 echo "=========================================="
-echo "✅ 服务启动成功！"
+echo "Services started successfully"
 echo "=========================================="
 echo ""
-echo "后端 PID: $BACKEND_PID"
-echo "前端 PID: $FRONTEND_PID"
+echo "Backend PID: $BACKEND_PID"
+if [ -n "$INGEST_PID" ]; then
+    echo "Ingest PID: $INGEST_PID"
+fi
+echo "Frontend PID: $FRONTEND_PID"
 echo ""
-echo "后端服务: http://localhost:8888"
-echo "前端服务: http://localhost:3001"
+echo "Upload default mode: $INGEST_DEFAULT_MODE"
+echo "Backend:  http://localhost:8888"
+echo "Frontend: http://localhost:3001"
 echo ""
-echo "按 Ctrl+C 停止服务"
+echo "Press Ctrl+C to stop services"
 echo ""
 
-# 等待中断信号
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
+cleanup() {
+    kill $BACKEND_PID $FRONTEND_PID ${INGEST_PID:-} 2>/dev/null
+    exit
+}
+
+trap cleanup INT TERM
 wait
-
