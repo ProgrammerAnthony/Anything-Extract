@@ -7,7 +7,8 @@ const api = axios.create({
   },
 });
 
-// 标签管理 API
+export type UploadProcessingMode = 'queue' | 'immediate';
+
 export const tagApi = {
   getAll: () => api.get('/tags'),
   getById: (id: string) => api.get(`/tags/${id}`),
@@ -16,7 +17,6 @@ export const tagApi = {
   delete: (id: string) => api.delete(`/tags/${id}`),
 };
 
-// 知识库管理 API
 export const knowledgeBaseApi = {
   getAll: (params?: { search?: string }) => api.get('/knowledge-bases', { params }),
   getById: (id: string) => api.get(`/knowledge-bases/${id}`),
@@ -27,12 +27,12 @@ export const knowledgeBaseApi = {
     api.get(`/knowledge-bases/${id}/documents`, { params }),
 };
 
-// 文档管理 API
 export const documentApi = {
-  upload: (file: File, knowledgeBaseId: string) => {
+  upload: (file: File, knowledgeBaseId: string, processingMode: UploadProcessingMode = 'queue') => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('knowledge_base_id', knowledgeBaseId);
+    formData.append('processing_mode', processingMode);
     return api.post('/documents/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -43,10 +43,10 @@ export const documentApi = {
     api.get('/documents', { params }),
   getById: (id: string) => api.get(`/documents/${id}`),
   getStatus: (id: string) => api.get(`/documents/${id}/status`),
+  retry: (id: string) => api.post(`/documents/${id}/retry`),
   delete: (id: string) => api.delete(`/documents/${id}`),
 };
 
-// 信息提取 API
 export const extractApi = {
   extract: (data: {
     tag_config_id: string;
@@ -96,11 +96,9 @@ export const extractApi = {
   }) => api.post('/extract/batch', data),
 };
 
-// 系统配置 API
 export const systemApi = {
   getConfig: () => api.get('/system/config'),
   updateConfig: (data: any) => api.put('/system/config', data),
 };
 
 export default api;
-
