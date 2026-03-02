@@ -8,6 +8,8 @@ const api = axios.create({
 });
 
 export type UploadProcessingMode = 'queue' | 'immediate';
+export type ParserMode = 'local' | 'server' | 'hybrid';
+export type ParserModelSource = 'docker-model' | 'local-model';
 
 export const tagApi = {
   getAll: () => api.get('/tags'),

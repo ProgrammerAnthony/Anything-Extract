@@ -134,6 +134,7 @@ class SystemConfigResponse(BaseModel):
     embedding: Dict[str, Any]
     vector_db: Dict[str, Any]
     retrieval: Dict[str, Any]
+    parser: Dict[str, Any]
 
 
 class SystemConfigUpdate(BaseModel):
@@ -141,6 +142,7 @@ class SystemConfigUpdate(BaseModel):
     llm: Optional[Dict[str, Any]] = None
     embedding: Optional[Dict[str, Any]] = None
     vector_db: Optional[Dict[str, Any]] = None
+    parser: Optional[Dict[str, Any]] = None
 
 
 class ApiResponse(BaseModel):

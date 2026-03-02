@@ -1,59 +1,70 @@
 """系统配置 API"""
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException
 
-from core.database import get_db
 from core.config import settings
 from app.models.schemas import (
     SystemConfigResponse,
     SystemConfigUpdate,
     ApiResponse
 )
+from services.runtime_config_service import runtime_config_service
 
 router = APIRouter()
+
+
+def _build_system_config_response() -> SystemConfigResponse:
+    parser_config = runtime_config_service.get_parser_config()
+
+    return SystemConfigResponse(
+        llm={
+            "provider": "ollama",
+            "base_url": settings.ollama_base_url,
+            "model": settings.ollama_model,
+        },
+        embedding={
+            "provider": "ollama",
+            "base_url": settings.ollama_base_url,
+            "model": settings.ollama_embedding_model,
+        },
+        vector_db={
+            "provider": "lancedb",
+            "path": settings.lance_db_path,
+        },
+        retrieval={
+            "default_method": settings.default_retrieval_method,
+            "available_methods": ["basic"],
+        },
+        parser={
+            "mode": parser_config.get("mode", "local"),
+            "available_modes": ["local", "server", "hybrid"],
+            "enable_ocr_server": bool(parser_config.get("enable_ocr_server", False)),
+            "enable_pdf_parser_server": bool(parser_config.get("enable_pdf_parser_server", False)),
+            "ocr_server_url": parser_config.get("ocr_server_url"),
+            "pdf_parser_server_url": parser_config.get("pdf_parser_server_url"),
+            "model_source": parser_config.get("model_source", "docker-model"),
+            "available_model_sources": ["docker-model", "local-model"],
+        },
+    )
 
 
 @router.get("/config", response_model=ApiResponse)
 async def get_config():
     """获取系统配置"""
-    return ApiResponse(
-        success=True,
-        data=SystemConfigResponse(
-            llm={
-                "provider": "ollama",
-                "base_url": settings.ollama_base_url,
-                "model": settings.ollama_model
-            },
-            embedding={
-                "provider": "ollama",
-                "base_url": settings.ollama_base_url,
-                "model": settings.ollama_embedding_model
-            },
-            vector_db={
-                "provider": "lancedb",
-                "path": settings.lance_db_path
-            },
-            retrieval={
-                "default_method": settings.default_retrieval_method,
-                "available_methods": [
-                    "basic"
-                ]
-            }
-        )
-    )
+    return ApiResponse(success=True, data=_build_system_config_response())
 
 
 @router.put("/config", response_model=ApiResponse)
-async def update_config(
-    config: SystemConfigUpdate,
-    db: Session = Depends(get_db)
-):
+async def update_config(config: SystemConfigUpdate):
     """更新系统配置"""
-    # TODO: 实现配置更新逻辑
-    # 注意：配置更新可能需要重启服务或重新初始化某些组件
-    
+    try:
+        if config.parser is not None:
+            runtime_config_service.update_parser_config(config.parser)
+    except ValueError as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     return ApiResponse(
         success=True,
-        message="配置更新成功（需要重启服务生效）"
+        data=_build_system_config_response(),
+        message="配置更新成功（解析配置即时生效）"
     )
 

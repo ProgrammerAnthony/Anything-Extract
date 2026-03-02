@@ -78,6 +78,17 @@ export default function DocumentDetailPage() {
     strategy?: string;
   }>>({});
 
+  const parserModeTextMap: Record<string, string> = {
+    local: 'Local',
+    server: 'Server',
+    hybrid: 'Hybrid',
+  };
+
+  const parserSourceTextMap: Record<string, string> = {
+    local: '本地',
+    server: '服务',
+  };
+
   useEffect(() => {
     loadDocument();
     loadTags();
@@ -226,6 +237,13 @@ export default function DocumentDetailPage() {
           <p className="text-gray-500">
             类型: {document.file_type} | 状态: {document.status}
           </p>
+          {(document.metadata?.parser_mode_requested || document.metadata?.parser_strategy) && (
+            <p className="text-sm text-gray-500 mt-1">
+              解析策略: {parserModeTextMap[document.metadata?.parser_mode_requested] || document.metadata?.parser_mode_requested || '-'}
+              {' | '}解析实现: {document.metadata?.parser_strategy || '-'}
+              {' | '}来源: {parserSourceTextMap[document.metadata?.parser_source] || document.metadata?.parser_source || '-'}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

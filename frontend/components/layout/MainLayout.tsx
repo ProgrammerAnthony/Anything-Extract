@@ -39,7 +39,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
       } else {
         setCurrentKbId(null);
       }
-    } else if (pathname?.startsWith('/tags') || pathname?.startsWith('/extract')) {
+    } else if (pathname?.startsWith('/tags') || pathname?.startsWith('/extract') || pathname?.startsWith('/settings')) {
       setActiveMenu('knowledge-extract');
     } else if (pathname?.startsWith('/qa')) {
       setActiveMenu('knowledge-qa');
