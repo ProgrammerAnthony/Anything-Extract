@@ -11,6 +11,11 @@ echo ""
 echo "检查 Python..."
 WITH_INGEST_SERVER=1
 INGEST_MODE="queue"
+WITH_OCR_SERVER=0
+WITH_PDF_SERVER=0
+WITH_QANYTHING_MODELS_DOCKER=0
+OCR_SERVER_URL_DEFAULT="http://127.0.0.1:7001"
+PDF_SERVER_URL_DEFAULT="http://127.0.0.1:9009"
 
 for arg in "$@"; do
     case "$arg" in
@@ -26,13 +31,27 @@ for arg in "$@"; do
         --immediate-mode)
             INGEST_MODE="immediate"
             ;;
+        --with-ocr-server)
+            WITH_OCR_SERVER=1
+            ;;
+        --with-pdf-server)
+            WITH_PDF_SERVER=1
+            ;;
+        --with-qanything-models-docker)
+            WITH_QANYTHING_MODELS_DOCKER=1
+            WITH_OCR_SERVER=1
+            WITH_PDF_SERVER=1
+            ;;
         -h|--help)
-            echo "Usage: ./run.sh [--with-ingest-server|--without-ingest-server] [--queue-mode|--immediate-mode]"
+            echo "Usage: ./run.sh [--with-ingest-server|--without-ingest-server] [--queue-mode|--immediate-mode] [--with-ocr-server] [--with-pdf-server] [--with-qanything-models-docker]"
             echo ""
             echo "  --with-ingest-server / --with-queue       Start Stage 2 ingest worker (default)"
             echo "  --without-ingest-server / --without-queue Skip Stage 2 ingest worker"
             echo "  --queue-mode                               Upload defaults to queue mode (default)"
             echo "  --immediate-mode                           Upload defaults to immediate mode"
+            echo "  --with-ocr-server                          Enable OCR server integration (Stage 3)"
+            echo "  --with-pdf-server                          Enable PDF parser server integration (Stage 3)"
+            echo "  --with-qanything-models-docker             Start QAnything model container (recommended for Stage 3)"
             exit 0
             ;;
         *)
@@ -49,12 +68,39 @@ if [ "$WITH_INGEST_SERVER" -eq 0 ] && [ "$INGEST_MODE" = "queue" ]; then
 fi
 
 export INGEST_DEFAULT_MODE="$INGEST_MODE"
+export ENABLE_OCR_SERVER="$WITH_OCR_SERVER"
+export ENABLE_PDF_PARSER_SERVER="$WITH_PDF_SERVER"
+export OCR_SERVER_URL="$OCR_SERVER_URL_DEFAULT"
+export PDF_PARSER_SERVER_URL="$PDF_SERVER_URL_DEFAULT"
+export PARSER_MODE="local"
+export QANYTHING_MODEL_SOURCE="local-model"
+if [ "$WITH_OCR_SERVER" -eq 1 ] || [ "$WITH_PDF_SERVER" -eq 1 ]; then
+    export PARSER_MODE="hybrid"
+fi
+if [ "$WITH_QANYTHING_MODELS_DOCKER" -eq 1 ]; then
+    export QANYTHING_MODEL_SOURCE="docker-model"
+fi
 
 echo "Upload default mode: $INGEST_DEFAULT_MODE"
 if [ "$WITH_INGEST_SERVER" -eq 1 ]; then
     echo "Ingest server: enabled"
 else
     echo "Ingest server: disabled"
+fi
+if [ "$WITH_OCR_SERVER" -eq 1 ]; then
+    echo "OCR server integration: enabled ($OCR_SERVER_URL)"
+else
+    echo "OCR server integration: disabled"
+fi
+if [ "$WITH_PDF_SERVER" -eq 1 ]; then
+    echo "PDF parser integration: enabled ($PDF_PARSER_SERVER_URL)"
+else
+    echo "PDF parser integration: disabled"
+fi
+if [ "$WITH_QANYTHING_MODELS_DOCKER" -eq 1 ]; then
+    echo "QAnything model source: docker-model"
+else
+    echo "QAnything model source: local-model"
 fi
 
 PYTHON_CMD=""
@@ -716,10 +762,46 @@ echo "检查 Ollama 服务..."
 echo "=========================================="
 check_ollama_models
 
+start_qanything_models_docker() {
+    local container_name="qanything_stage3_models"
+    local image_name="xixihahaliu01/qanything-linux:v1.5.1"
+
+    if ! command -v docker &> /dev/null; then
+        echo "⚠️  未检测到 docker，无法自动启动 QAnything 模型容器"
+        return 1
+    fi
+
+    if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo "✅ QAnything 模型容器已运行: ${container_name}"
+        return 0
+    fi
+
+    if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+        echo "启动已存在的 QAnything 模型容器: ${container_name}"
+        docker start "${container_name}" >/dev/null || return 1
+        return 0
+    fi
+
+    echo "首次拉起 QAnything 模型容器（可能需要下载镜像，时间较长）..."
+    docker run -d \
+        --name "${container_name}" \
+        -p 7001:7001 \
+        -p 9009:9009 \
+        "${image_name}" >/dev/null
+}
+
 echo ""
 echo "=========================================="
 echo "Starting services..."
 echo "=========================================="
+
+if [ "$WITH_QANYTHING_MODELS_DOCKER" -eq 1 ]; then
+    if start_qanything_models_docker; then
+        echo "✅ QAnything 模型容器可用，OCR/PDF 服务预计运行在 7001/9009"
+    else
+        echo "⚠️  QAnything 模型容器启动失败，将继续以本地 fallback 模式运行"
+    fi
+fi
 
 PYTHON_CMD="python3"
 if ! command -v python3 &> /dev/null; then
@@ -748,6 +830,33 @@ fi
 $BACKEND_PYTHON_CMD main.py &
 BACKEND_PID=$!
 
+OCR_PID=""
+PDF_PID=""
+if [ "$WITH_QANYTHING_MODELS_DOCKER" -eq 0 ]; then
+    OCR_SERVER_SCRIPT="../QAnything/qanything_kernel/dependent_server/ocr_server/ocr_server.py"
+    PDF_SERVER_SCRIPT="../QAnything/qanything_kernel/dependent_server/pdf_parser_server/pdf_parser_server.py"
+
+    if [ "$WITH_OCR_SERVER" -eq 1 ]; then
+        if [ -f "$OCR_SERVER_SCRIPT" ]; then
+            echo "Starting OCR dependent server..."
+            $BACKEND_PYTHON_CMD "$OCR_SERVER_SCRIPT" --workers 1 > logs/ocr_server.log 2>&1 &
+            OCR_PID=$!
+        else
+            echo "⚠️  未找到 OCR 服务脚本: $OCR_SERVER_SCRIPT"
+        fi
+    fi
+
+    if [ "$WITH_PDF_SERVER" -eq 1 ]; then
+        if [ -f "$PDF_SERVER_SCRIPT" ]; then
+            echo "Starting PDF parser dependent server..."
+            $BACKEND_PYTHON_CMD "$PDF_SERVER_SCRIPT" --workers 1 > logs/pdf_parser_server.log 2>&1 &
+            PDF_PID=$!
+        else
+            echo "⚠️  未找到 PDF 解析服务脚本: $PDF_SERVER_SCRIPT"
+        fi
+    fi
+fi
+
 INGEST_PID=""
 if [ "$WITH_INGEST_SERVER" -eq 1 ]; then
     echo "Starting ingest worker..."
@@ -771,20 +880,33 @@ echo "Services started successfully"
 echo "=========================================="
 echo ""
 echo "Backend PID: $BACKEND_PID"
+if [ -n "$OCR_PID" ]; then
+    echo "OCR Server PID: $OCR_PID"
+fi
+if [ -n "$PDF_PID" ]; then
+    echo "PDF Server PID: $PDF_PID"
+fi
 if [ -n "$INGEST_PID" ]; then
     echo "Ingest PID: $INGEST_PID"
 fi
 echo "Frontend PID: $FRONTEND_PID"
 echo ""
 echo "Upload default mode: $INGEST_DEFAULT_MODE"
+echo "Parser mode: $PARSER_MODE"
 echo "Backend:  http://localhost:8888"
 echo "Frontend: http://localhost:3001"
+if [ "$WITH_OCR_SERVER" -eq 1 ]; then
+    echo "OCR API:  $OCR_SERVER_URL/ocr"
+fi
+if [ "$WITH_PDF_SERVER" -eq 1 ]; then
+    echo "PDF API:  $PDF_PARSER_SERVER_URL/pdfparser"
+fi
 echo ""
 echo "Press Ctrl+C to stop services"
 echo ""
 
 cleanup() {
-    kill $BACKEND_PID $FRONTEND_PID ${INGEST_PID:-} 2>/dev/null
+    kill $BACKEND_PID $FRONTEND_PID ${INGEST_PID:-} ${OCR_PID:-} ${PDF_PID:-} 2>/dev/null
     exit
 }
 

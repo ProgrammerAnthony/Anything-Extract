@@ -539,3 +539,29 @@ anything-extract/
 - `run.sh` now supports one-command local startup with worker orchestration:
   - default starts backend + frontend + ingest worker
   - supports `--without-ingest-server` / `--immediate-mode` fallback options.
+
+
+### Stage 3 Execution Record (2026-02-14)
+
+- Status: completed.
+- Backend parser service bridge added:
+  - `backend/services/qanything_parser_bridge.py`
+  - `backend/services/runtime_config_service.py`
+- `DocumentParser` upgraded with strategy routing:
+  - supports `parser_mode=local|server|hybrid`
+  - PDF flow: prefer `/pdfparser` when enabled, fallback to local parser in hybrid mode
+  - image flow (`jpg/jpeg/png`): prefer `/ocr` when enabled, fallback to local placeholder/local loader
+  - parser metadata now records strategy/source for detail page display.
+- Upload API expanded for image OCR intake:
+  - `backend/app/api/documents.py` now accepts `jpg/jpeg/png` with MIME validation.
+- System config API now supports Stage 3 parser switches:
+  - `GET/PUT /api/system/config` returns and updates OCR/PDF service toggles, parser mode, and model source.
+- Frontend Stage 3 UX implemented:
+  - new settings page: `frontend/app/settings/page.tsx`
+  - secondary navigation entry for settings
+  - document detail now shows parser strategy/source metadata
+  - upload accept list expanded to include `jpg/jpeg/png`.
+- Run orchestration upgraded:
+  - `run.sh` adds `--with-ocr-server`, `--with-pdf-server`, `--with-qanything-models-docker`
+  - supports optional dependent server startup and docker-model mode hints.
+- Architecture sync completed in `ARCHITECTURE.md` (Stage 3 parser service layer update).

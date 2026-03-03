@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     default_retrieval_method: str = "basic"
     default_top_k: int = 5
     enable_rerank: bool = False
+    enable_ocr_server: bool = False
+    enable_pdf_parser_server: bool = False
+    ocr_server_url: str = "http://127.0.0.1:7001"
+    pdf_parser_server_url: str = "http://127.0.0.1:9009"
+    parser_mode: str = "local"  # local | server | hybrid
+    qanything_model_source: str = "docker-model"  # docker-model | local-model
+    parser_runtime_config_path: str = "./storage/system_runtime_config.json"
     # Stage 2 ingest queue settings
     ingest_default_mode: str = "queue"  # queue | immediate
     ingest_queue_poll_interval: float = 1.0

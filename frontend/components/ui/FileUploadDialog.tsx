@@ -21,7 +21,7 @@ export default function FileUploadDialog({
   open,
   onClose,
   onConfirm,
-  accept = '.pdf,.docx,.txt,.md,.csv,.json,.xlsx,.pptx,.eml',
+  accept = '.pdf,.docx,.txt,.md,.csv,.json,.xlsx,.pptx,.eml,.jpg,.jpeg,.png',
   maxSize = 100,
   multiple = true,
   showProcessingModeToggle = false,
