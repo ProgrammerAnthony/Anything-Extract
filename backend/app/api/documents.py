@@ -1,4 +1,4 @@
-"""文档管理 API"""
+﻿"""文档管理 API。"""
 from __future__ import annotations
 
 import asyncio
@@ -18,12 +18,15 @@ from core.config import settings
 from core.database import (
     Document,
     DocumentIngestJob,
+    DocumentSegment,
     DocumentVector,
     ExtractionResult,
     KnowledgeBase,
+    KnowledgeBaseProcessRule,
     SessionLocal,
     get_db,
 )
+from core.rag.datasource.keyword.jieba import JiebaKeywordService
 from providers.vector_db.lancedb import LanceDBProvider
 from services.document_ingest_service import DocumentIngestService
 from services.ingest_queue_service import IngestQueueService
@@ -32,7 +35,20 @@ from utils.logging import debug_logger, document_logger
 router = APIRouter()
 ingest_queue_service = IngestQueueService()
 
-SUPPORTED_UPLOAD_EXTENSIONS = {"pdf", "docx", "txt", "md", "csv", "json", "xlsx", "pptx", "eml", "jpg", "jpeg", "png"}
+SUPPORTED_UPLOAD_EXTENSIONS = {
+    "pdf",
+    "docx",
+    "txt",
+    "md",
+    "csv",
+    "json",
+    "xlsx",
+    "pptx",
+    "eml",
+    "jpg",
+    "jpeg",
+    "png",
+}
 EXTENSION_MIME_TYPES = {
     "pdf": {"application/pdf"},
     "docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
@@ -81,14 +97,46 @@ def _serialize_document(document: Document, ingest_job: Optional[DocumentIngestJ
 
     return {
         "id": document.id,
+        "knowledge_base_id": document.knowledge_base_id,
         "filename": document.filename,
         "file_type": document.file_type,
         "status": document.status,
+        "display_status": document.display_status,
+        "indexing_status": document.indexing_status,
+        "enabled": document.enabled,
+        "archived": document.archived,
+        "doc_form": document.doc_form,
+        "doc_language": document.doc_language,
+        "batch": document.batch,
+        "position": document.position,
+        "word_count": document.word_count,
+        "tokens": document.tokens,
+        "error": document.error,
         "metadata": metadata,
         "created_at": document.created_at.isoformat() if hasattr(document.created_at, "isoformat") else str(document.created_at),
         "updated_at": document.updated_at.isoformat() if hasattr(document.updated_at, "isoformat") else str(document.updated_at),
         "ingest_job": ingest_queue_service.serialize_job(ingest_job),
     }
+
+
+def _ensure_default_process_rule_id(db: Session, knowledge_base_id: str) -> str:
+    rule = (
+        db.query(KnowledgeBaseProcessRule)
+        .filter(KnowledgeBaseProcessRule.knowledge_base_id == knowledge_base_id)
+        .order_by(KnowledgeBaseProcessRule.created_at.asc())
+        .first()
+    )
+    if rule:
+        return rule.id
+
+    rule = KnowledgeBaseProcessRule(
+        knowledge_base_id=knowledge_base_id,
+        mode="automatic",
+        rules=json.dumps(KnowledgeBaseProcessRule.AUTOMATIC_RULES, ensure_ascii=False),
+    )
+    db.add(rule)
+    db.flush()
+    return rule.id
 
 
 async def _process_document_immediate(document_id: str) -> None:
@@ -113,6 +161,9 @@ async def _process_document_immediate(document_id: str) -> None:
             document = db_session.query(Document).filter(Document.id == document_id).first()
             if document:
                 document.status = "failed"
+                document.indexing_status = "error"
+                document.error = str(exc)
+                document.stopped_at = document.updated_at
                 db_session.commit()
         except Exception as mark_exc:  # noqa: BLE001
             document_logger.error("即时处理状态写回失败: %s", mark_exc)
@@ -125,6 +176,7 @@ async def upload_document(
     file: UploadFile = File(...),
     knowledge_base_id: str = Form(...),
     processing_mode: Optional[str] = Form(None),
+    batch: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == knowledge_base_id).first()
@@ -147,6 +199,15 @@ async def upload_document(
         shutil.copyfileobj(file.file, buffer)
 
     initial_status = "queued" if mode == "queue" else "processing"
+    batch_id = batch or uuid.uuid4().hex
+    position = (
+        db.query(Document)
+        .filter(Document.knowledge_base_id == knowledge_base_id, Document.batch == batch_id)
+        .count()
+        + 1
+    )
+    process_rule_id = _ensure_default_process_rule_id(db=db, knowledge_base_id=knowledge_base_id)
+
     document = Document(
         knowledge_base_id=knowledge_base_id,
         filename=file.filename,
@@ -154,6 +215,17 @@ async def upload_document(
         file_path=str(file_path),
         json_path="",
         status=initial_status,
+        indexing_status="waiting",
+        doc_form=kb.doc_form or "text_model",
+        doc_language="English",
+        data_source_type="upload_file",
+        data_source_info=json.dumps({"file_path": str(file_path)}, ensure_ascii=False),
+        process_rule_id=process_rule_id,
+        batch=batch_id,
+        position=position,
+        created_from="upload_file",
+        enabled=True,
+        archived=False,
     )
     db.add(document)
     db.flush()
@@ -289,6 +361,9 @@ async def retry_document_ingest(document_id: str, db: Session = Depends(get_db))
     document = db.query(Document).filter(Document.id == document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
+    # 业务规则：归档文档不可重新索引。
+    if document.archived:
+        raise HTTPException(status_code=400, detail="归档文档不可重新索引，请先取消归档")
 
     try:
         job = ingest_queue_service.retry_document_job(db, document_id)
@@ -320,6 +395,19 @@ async def delete_document(document_id: str, db: Session = Depends(get_db)):
             document_logger.warning("删除向量失败: %s", exc)
             debug_logger.warning("删除向量失败: %s\n%s", exc, traceback.format_exc())
 
+        try:
+            kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == document.knowledge_base_id).first()
+            if kb:
+                node_ids = [
+                    item.index_node_id
+                    for item in db.query(DocumentSegment).filter(DocumentSegment.document_id == document_id).all()
+                    if item.index_node_id
+                ]
+                if node_ids:
+                    JiebaKeywordService(db=db, knowledge_base=kb).delete_by_ids(node_ids)
+        except Exception as exc:  # noqa: BLE001
+            document_logger.warning("清理关键词倒排失败: %s", exc)
+
         db.query(DocumentVector).filter(DocumentVector.document_id == document_id).delete()
         db.query(ExtractionResult).filter(ExtractionResult.document_id == document_id).delete()
 
@@ -338,3 +426,4 @@ async def delete_document(document_id: str, db: Session = Depends(get_db)):
         document_logger.error(error_msg)
         debug_logger.error(error_msg)
         raise HTTPException(status_code=500, detail=f"删除文档失败: {exc}") from exc
+

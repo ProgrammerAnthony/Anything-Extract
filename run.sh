@@ -376,164 +376,17 @@ fi
 
 cd ..
 
-# 模型选择函数
+# 模型配置函数（固定使用 llama3.2:3b + nomic-embed-text）
 select_models() {
+    local selected_llm="llama3.2:3b"
+    local selected_embedding="nomic-embed-text"
+    
     echo ""
     echo "=========================================="
-    echo "选择 Ollama 模型配置"
+    echo "Ollama 模型配置"
     echo "=========================================="
+    echo "使用默认配置: LLM=${selected_llm}, Embedding=${selected_embedding} (维度: 768)"
     echo ""
-    
-    # LLM 模型列表（按参数量从小到大）
-    echo "📋 LLM 模型列表（用于信息提取）："
-    echo ""
-    echo "  1) qwen2:0.5b      - 参数量: 0.5B  | 显存: ~300MB  | 内存: ~500MB  | 极轻量，最快"
-    echo "  2) llama3.2:1b     - 参数量: 1B    | 显存: ~600MB  | 内存: ~1GB    | 超轻量，快速"
-    echo "  3) tinyllama        - 参数量: 1.1B  | 显存: ~650MB  | 内存: ~1.1GB  | 超轻量"
-    echo "  4) phi3:mini        - 参数量: 3.8B  | 显存: ~2.2GB  | 内存: ~3GB    | 推荐，平衡性能"
-    echo "  5) llama3.2:3b     - 参数量: 3B    | 显存: ~1.8GB  | 内存: ~2.5GB  | 轻量，性能好"
-    echo "  6) mistral:7b       - 参数量: 7B    | 显存: ~4GB    | 内存: ~5GB    | 高性能（需更多资源）"
-    echo "  7) llama2:7b        - 参数量: 7B    | 显存: ~4GB    | 内存: ~5GB    | 高性能（需更多资源）"
-    echo ""
-    
-    # 读取当前配置
-    local current_llm="qwen2:0.5b"
-    local current_embedding="all-minilm"
-    if [ -f "backend/.env" ]; then
-        if grep -q "^OLLAMA_MODEL=" backend/.env 2>/dev/null; then
-            current_llm=$(grep "^OLLAMA_MODEL=" backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
-        fi
-        if grep -q "^OLLAMA_EMBEDDING_MODEL=" backend/.env 2>/dev/null; then
-            current_embedding=$(grep "^OLLAMA_EMBEDDING_MODEL=" backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
-        fi
-    fi
-    
-    # 检查是否为交互式终端
-    local need_selection=0
-    if [ ! -t 0 ]; then
-        echo "非交互式模式，使用当前配置或默认配置"
-        if [ -f "backend/.env" ] && grep -q "^OLLAMA_MODEL=" backend/.env 2>/dev/null; then
-            echo "使用已存在的配置"
-            return 0
-        else
-            # 非交互式模式下使用默认配置
-            need_selection=1
-            selected_llm="phi3:mini"
-            selected_embedding="nomic-embed-text"
-            echo "使用默认配置: LLM=${selected_llm}, Embedding=${selected_embedding}"
-        fi
-    else
-        # 显示当前配置
-        echo "当前配置: LLM=${current_llm}, Embedding=${current_embedding}"
-        echo ""
-        read -p "是否要重新选择模型？(y/N): " change_models
-        
-        if [ "$change_models" != "y" ] && [ "$change_models" != "Y" ]; then
-            echo "使用当前配置"
-            return 0
-        else
-            need_selection=1
-        fi
-    fi
-    
-    # 选择 LLM 模型（仅在需要选择时）
-    if [ $need_selection -eq 1 ] && [ -t 0 ]; then
-        echo ""
-        read -p "请选择 LLM 模型 (1-7，默认 4): " llm_choice
-        llm_choice=${llm_choice:-4}
-        
-        case $llm_choice in
-            1) selected_llm="qwen2:0.5b" ;;
-            2) selected_llm="llama3.2:1b" ;;
-            3) selected_llm="tinyllama" ;;
-            4) selected_llm="phi3:mini" ;;
-            5) selected_llm="llama3.2:3b" ;;
-            6) selected_llm="mistral:7b" ;;
-            7) selected_llm="llama2:7b" ;;
-            *) selected_llm="phi3:mini" ;;
-        esac
-        
-        # Embedding 模型列表（按参数量从小到大）
-        echo ""
-        echo "📋 Embedding 模型列表（用于向量化）："
-        echo ""
-        echo "  1) all-minilm       - 参数量: 22MB  | 维度: 384   | 显存: ~50MB   | 内存: ~100MB  | 超轻量，极速"
-        echo "  2) bge-small        - 参数量: 33MB  | 维度: 384   | 显存: ~80MB   | 内存: ~150MB  | 轻量，效果不错"
-        echo "  3) nomic-embed-text - 参数量: 274MB | 维度: 768   | 显存: ~500MB  | 内存: ~600MB  | 推荐，平衡性能"
-        echo ""
-        echo "⚠️  重要提示："
-        echo "   - 不同 embedding 模型生成的向量维度不同（384 或 768）"
-        echo "   - 切换 embedding 模型后，需要重新上传文档进行向量化"
-        echo "   - 否则会出现维度不匹配错误"
-        echo ""
-        
-        # 选择 Embedding 模型
-        read -p "请选择 Embedding 模型 (1-3，默认 3): " embedding_choice
-        embedding_choice=${embedding_choice:-3}
-        
-        case $embedding_choice in
-            1) selected_embedding="all-minilm" ;;
-            2) selected_embedding="bge-small" ;;
-            3) selected_embedding="nomic-embed-text" ;;
-            *) selected_embedding="nomic-embed-text" ;;
-        esac
-        
-        # 检查是否切换了 embedding 模型
-        if [ -f "backend/.env" ] && grep -q "^OLLAMA_EMBEDDING_MODEL=" backend/.env 2>/dev/null; then
-            old_embedding=$(grep "^OLLAMA_EMBEDDING_MODEL=" backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
-            if [ "$old_embedding" != "$selected_embedding" ]; then
-                echo ""
-                echo "⚠️  警告：检测到 embedding 模型切换！"
-                echo "   旧模型: ${old_embedding}"
-                echo "   新模型: ${selected_embedding}"
-                echo ""
-                echo "   切换 embedding 模型会导致："
-                echo "   1. 向量维度不匹配（如果新旧模型维度不同）"
-                echo "   2. 需要重新上传所有文档进行向量化"
-                echo "   3. 旧的向量数据将无法使用"
-                echo ""
-                read -p "   是否继续？(y/N): " confirm_switch
-                if [ "$confirm_switch" != "y" ] && [ "$confirm_switch" != "Y" ]; then
-                    echo "已取消模型切换"
-                    return 0
-                fi
-            fi
-        fi
-    fi
-    
-    # 确保变量已设置（非交互式模式下的默认值已在上面设置）
-    if [ -z "$selected_llm" ]; then
-        selected_llm="phi3:mini"
-    fi
-    if [ -z "$selected_embedding" ]; then
-        selected_embedding="nomic-embed-text"
-    fi
-    
-    # 获取 embedding 模型维度信息
-    embedding_dim="未知"
-    case $selected_embedding in
-        all-minilm|bge-small) embedding_dim="384" ;;
-        nomic-embed-text) embedding_dim="768" ;;
-    esac
-    
-    echo ""
-    echo "✅ 已选择配置:"
-    echo "   LLM 模型: ${selected_llm}"
-    echo "   Embedding 模型: ${selected_embedding} (维度: ${embedding_dim})"
-    echo ""
-    
-    # 如果切换了 embedding 模型，给出额外提示
-    if [ -f "backend/.env" ] && grep -q "^OLLAMA_EMBEDDING_MODEL=" backend/.env 2>/dev/null; then
-        old_embedding=$(grep "^OLLAMA_EMBEDDING_MODEL=" backend/.env | cut -d'=' -f2 | tr -d '"' | tr -d "'" | xargs)
-        if [ "$old_embedding" != "$selected_embedding" ]; then
-            echo "⚠️  重要提示：已切换 embedding 模型"
-            echo "   如果数据库中已有向量数据，请："
-            echo "   1. 删除 storage/lancedb 目录（清除旧向量数据）"
-            echo "   2. 重新上传所有文档进行向量化"
-            echo "   或者保持使用原模型以避免维度不匹配"
-            echo ""
-        fi
-    fi
     
     # 更新或创建 .env 文件
     if [ ! -f "backend/.env" ]; then
@@ -601,9 +454,8 @@ echo "✅ 存储目录检查完成"
 # 检查 Ollama 是否运行并检查模型
 check_ollama_models() {
     local ollama_url="http://localhost:11434"
-    # 默认使用轻量级模型（适合 CPU 部署）
-    local llm_model="qwen2:0.5b"
-    local embedding_model="all-minilm"
+    local llm_model="llama3.2:3b"
+    local embedding_model="nomic-embed-text"
     
     # 从 .env 文件读取配置（如果存在）
     if [ -f "backend/.env" ]; then

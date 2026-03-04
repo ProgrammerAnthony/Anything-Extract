@@ -1,51 +1,47 @@
-"""Document ingest execution helpers."""
+﻿"""文档索引执行服务。"""
+from __future__ import annotations
+
 import json
-from typing import Dict, Any
+from typing import Any, Dict
 
 from sqlalchemy.orm import Session
 
 from core.database import Document
+from core.indexing_runner import IndexingRunner
 from services.document_service import DocumentService
-from services.embedding_service import EmbeddingService
 from utils.logging import document_logger
 
 
 class DocumentIngestService:
-    """Execute parse/split/embed for a document."""
+    """执行文档解析与索引。"""
 
     def __init__(self):
         self.document_service = DocumentService()
-        self.embedding_service = EmbeddingService()
+        self.indexing_runner = IndexingRunner()
 
     async def ingest_document(self, db: Session, document: Document) -> Dict[str, Any]:
-        result = await self.document_service.process_document(document.file_path, document.file_type)
+        # 保留原有 JSON 产物，兼容旧页面与历史调试入口
+        parsed_result = await self.document_service.process_document(document.file_path, document.file_type)
+        document.json_path = parsed_result["json_path"]
+        document.document_metadata = json.dumps(parsed_result["document"].get("metadata", {}), ensure_ascii=False)
 
-        document.json_path = result["json_path"]
-        document.document_metadata = json.dumps(result["document"].get("metadata", {}), ensure_ascii=False)
-
-        all_chunks_data = []
-        for page in result["document"]["pages"]:
-            for chunk_data in page["chunks"]:
-                all_chunks_data.append(
-                    {
-                        "chunk_id": chunk_data["chunk_id"],
-                        "content": chunk_data["content"],
-                        "page_number": chunk_data["page_number"],
-                        "chunk_index": chunk_data["chunk_index"],
-                    }
-                )
-
+        # 按统一四阶段流程执行索引
+        summary = await self.indexing_runner.run(db=db, document=document)
         document_logger.info(
-            "文档分块完成: document_id=%s, chunks=%s",
+            "文档索引完成: document_id=%s, segments=%s, tokens=%s",
             document.id,
-            len(all_chunks_data),
-        )
-        await self.embedding_service.embed_document(
-            document_id=document.id,
-            chunks_data=all_chunks_data,
-            metadata={"document_id": document.id},
+            summary.total_segments,
+            summary.tokens,
         )
 
-        document.status = "completed"
         db.flush()
-        return result
+        return {
+            "json_path": parsed_result["json_path"],
+            "document": parsed_result["document"],
+            "indexing": {
+                "total_segments": summary.total_segments,
+                "tokens": summary.tokens,
+                "word_count": summary.word_count,
+            },
+        }
+

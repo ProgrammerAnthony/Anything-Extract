@@ -94,7 +94,7 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
       (kb) => kb.name.trim().toLowerCase() === name.toLowerCase()
     );
     if (exactMatch) {
-      router.push(`/knowledge-bases/${exactMatch.id}`);
+      router.push(`/knowledge-bases/${exactMatch.id}/documents`);
       return;
     }
 
@@ -310,7 +310,7 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                       ${currentKbId === kb.id ? 'border-2 border-[#5a47e5]' : 'border border-transparent'}
                       ${editingId === kb.id ? 'bg-gray-100' : 'bg-gradient-to-r from-[#7b5ef2] to-[#c383fe]'}
                     `}
-                    onClick={() => !editingId && router.push(`/knowledge-bases/${kb.id}`)}
+                    onClick={() => !editingId && router.push(`/knowledge-bases/${kb.id}/documents`)}
                     title={collapsed ? kb.name : ''}
                   >
                     {editingId === kb.id ? (
