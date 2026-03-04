@@ -1,8 +1,9 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
+/** 知识库详情下 Tab：文档、召回测试、设置。按 pathname 高亮当前 Tab。 */
 interface KnowledgeDetailTabsProps {
   knowledgeBaseId: string
 }

@@ -1,4 +1,4 @@
-﻿import axios from 'axios'
+import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
@@ -19,6 +19,7 @@ export const tagApi = {
   delete: (id: string) => api.delete(`/tags/${id}`),
 }
 
+/** 知识库相关 API：知识库 CRUD、文档列表/详情/设置/预览/重新入队、分段 CRUD、召回测试。 */
 export const knowledgeBaseApi = {
   getAll: (params?: { keyword?: string; search?: string; page?: number; limit?: number }) =>
     api.get('/knowledge-bases', { params }),
@@ -48,6 +49,7 @@ export const knowledgeBaseApi = {
   update: (id: string, data: Record<string, any>) => api.patch(`/knowledge-bases/${id}`, data),
   delete: (id: string) => api.delete(`/knowledge-bases/${id}`),
 
+  /** 文档列表，支持 status 筛选与分页，返回 ingest_job 与 hit_count */
   getDocuments: (
     id: string,
     params?: {
@@ -76,6 +78,13 @@ export const knowledgeBaseApi = {
     api.patch(`/knowledge-bases/${id}/documents/${docId}/name`, { name }),
   updateDocumentSettings: (id: string, docId: string, data: Record<string, any>) =>
     api.patch(`/knowledge-bases/${id}/documents/${docId}/settings`, data),
+  previewDocumentChunks: (
+    id: string,
+    docId: string,
+    data?: { process_rule?: Record<string, any> },
+  ) => api.post(`/knowledge-bases/${id}/documents/${docId}/preview-chunks`, data ?? {}),
+  /** 保存设置后触发重新入队（process 页「保存并处理」后调用） */
+  reindexDocument: (id: string, docId: string) => api.post(`/knowledge-bases/${id}/documents/${docId}/reindex`),
   getDocumentIndexingStatus: (id: string, docId: string) => api.get(`/knowledge-bases/${id}/documents/${docId}/indexing-status`),
   getBatchIndexingStatus: (id: string, batchId: string) => api.get(`/knowledge-bases/${id}/batch/${batchId}/indexing-status`),
   patchDocumentsStatusBatch: (

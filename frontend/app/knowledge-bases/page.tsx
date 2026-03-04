@@ -1,5 +1,6 @@
-﻿'use client'
+'use client'
 
+/** 知识库列表页：拉取知识库列表，若有则重定向到默认/第一个知识库的文档列表。 */
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'

@@ -1,6 +1,10 @@
+/**
+ * 召回测试数据层：发起检索、获取历史查询列表。
+ */
 import { knowledgeBaseApi } from '@/lib/api'
 import type { HitTestingQuery, HitTestingRecord } from './types'
 
+/** 按 query 与可选 retrieval_model/document_ids 召回，返回 records 与 hits */
 export async function useHitTesting(
   knowledgeBaseId: string,
   payload: {
@@ -24,6 +28,7 @@ export async function useHitTesting(
   }
 }
 
+/** 召回测试历史查询列表（分页） */
 export async function useHitTestingQueries(
   knowledgeBaseId: string,
   params?: { page?: number; limit?: number },

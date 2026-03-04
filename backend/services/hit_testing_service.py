@@ -1,4 +1,7 @@
-"""召回测试服务。"""
+"""
+召回测试服务：按 query 与检索配置在知识库内检索，返回命中的分段与分数。
+经济模式强制 keyword_search；支持按 document_ids 限定文档范围。
+"""
 from __future__ import annotations
 
 import json
@@ -32,10 +35,11 @@ DEFAULT_RETRIEVAL_MODEL: dict[str, Any] = {
 
 
 class HitTestingService:
-    """知识库召回测试编排服务。"""
+    """知识库召回测试：参数校验 + retrieve 编排（合并检索配置、调用 RetrievalService、组装 records/hits）。"""
 
     @classmethod
     def hit_testing_args_check(cls, payload: dict[str, Any]) -> None:
+        """校验 query 非空且长度、document_ids 类型。"""
         query = str(payload.get("query") or "").strip()
         if not query:
             raise ValueError("query 不能为空")
@@ -56,6 +60,7 @@ class HitTestingService:
         document_ids: list[str] | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
+        """合并知识库与请求的检索配置，调用 RetrievalService 检索，返回 query、retrieval_model、records、hits。"""
         # 合并默认检索配置，避免前端只传部分字段导致后端分支缺参。
         merged_retrieval_model = dict(DEFAULT_RETRIEVAL_MODEL)
         merged_retrieval_model.update(knowledge_base.retrieval_model_dict or {})

@@ -1,4 +1,11 @@
-﻿"""知识库 API（文档/分段/检索接口）。"""
+"""
+知识库 API：知识库 CRUD、文档与分段管理、预览/召回测试、索引状态与重新入队。
+
+路由前缀：/api/knowledge-bases
+- 知识库：创建、查询、更新、删除、初始化（含批量文档）
+- 文档：列表、创建、详情、重命名、设置、预览块、重新入队、索引状态、分段 CRUD
+- 召回测试：POST hit-testing，使用检索服务返回命中的分段与分数
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -29,15 +36,20 @@ from core.rag.datasource.keyword.jieba import JiebaKeywordService
 from core.rag.models.document import DocumentNode
 from providers.embedding.ollama import OllamaEmbeddingProvider
 from providers.vector_db.lancedb import LanceDBProvider
+from core.indexing_runner import IndexingRunner
 from services.hit_testing_service import HitTestingService
 from services.ingest_queue_service import IngestQueueService
 
 router = APIRouter()
-ingest_queue_service = IngestQueueService()
-hit_testing_service = HitTestingService()
+indexing_runner = IndexingRunner()  # 文档索引主流程：抽取 -> 清洗分段 -> 落库分段 -> 写向量/关键词
+ingest_queue_service = IngestQueueService()  # 文档入队与任务状态
+hit_testing_service = HitTestingService()  # 召回测试：按检索配置查询并返回命中分段
 
+
+# ---------- 请求/响应模型 ----------
 
 class KnowledgeBaseCreate(BaseModel):
+    """创建知识库：名称、索引方式（高质量/经济）、分段模式、检索与 embedding 配置。"""
     name: str
     indexing_technique: str = "high_quality"
     doc_form: str = "text_model"
@@ -58,12 +70,14 @@ class KnowledgeBaseUpdate(BaseModel):
 
 
 class KnowledgeBaseInitRequest(BaseModel):
+    """一次性创建知识库并可选批量添加文档（本地路径），共用 process_rule。"""
     knowledge_base: KnowledgeBaseCreate
     file_paths: list[str] = Field(default_factory=list)
     process_rule: ProcessRule | None = None
 
 
 class DocumentCreateRequest(BaseModel):
+    """按本地 file_path 创建文档并入队；batch 用于同批多文档。"""
     name: str | None = None
     file_path: str
     file_type: str
@@ -104,6 +118,11 @@ class DocumentSettingsUpdateRequest(BaseModel):
     process_rule: ProcessRule | None = None
 
 
+class PreviewChunksRequest(BaseModel):
+    """预览块请求：可选传入 process_rule，不传则使用文档当前规则。"""
+    process_rule: dict[str, Any] | None = None
+
+
 class HitTestingRequest(BaseModel):
     query: str
     retrieval_model: dict[str, Any] | None = None
@@ -111,6 +130,7 @@ class HitTestingRequest(BaseModel):
 
 
 def _default_retrieval_model() -> dict[str, Any]:
+    """默认检索配置：语义检索、top_k=3、无重排。"""
     return {
         "search_method": "semantic_search",
         "reranking_enable": False,
@@ -126,7 +146,10 @@ def _default_retrieval_model() -> dict[str, Any]:
     }
 
 
+# ---------- 序列化：ORM -> API 响应 ----------
+
 def _serialize_kb(kb: KnowledgeBase) -> dict[str, Any]:
+    """知识库实体转前端所需字段（含 retrieval_model 解析）。"""
     return {
         "id": kb.id,
         "name": kb.name,
@@ -143,6 +166,7 @@ def _serialize_kb(kb: KnowledgeBase) -> dict[str, Any]:
 
 
 def _serialize_process_rule(rule: KnowledgeBaseProcessRule | None) -> dict[str, Any] | None:
+    """处理规则：mode + rules（预处理与分段）转 JSON 字典。"""
     if not rule:
         return None
     return {
@@ -159,6 +183,7 @@ def _serialize_document(
     ingest_job: DocumentIngestJob | None = None,
     hit_count: int | None = None,
 ) -> dict[str, Any]:
+    """文档实体转 API 响应，含 ingest_job 状态（队列/处理中/完成）。"""
     return {
         "id": doc.id,
         "knowledge_base_id": doc.knowledge_base_id,
@@ -198,6 +223,7 @@ def _serialize_document(
 
 
 def _serialize_segment(segment: DocumentSegment) -> dict[str, Any]:
+    """分段实体转 API 响应（content/keywords/status/index_node_id 等）。"""
     return {
         "id": segment.id,
         "document_id": segment.document_id,
@@ -239,11 +265,14 @@ def _serialize_kb_query(item: KnowledgeBaseQuery) -> dict[str, Any]:
     }
 
 
+# ---------- 内部辅助：处理规则与数据集默认规则 ----------
+
 def _ensure_kb_process_rule(
     db: Session,
     kb_id: str,
     process_rule: ProcessRule | None = None,
 ) -> KnowledgeBaseProcessRule:
+    """若传入 process_rule 则新建一条规则并返回；否则返回该知识库已有第一条规则或创建默认规则。"""
     if process_rule:
         rule = KnowledgeBaseProcessRule(
             knowledge_base_id=kb_id,
@@ -274,6 +303,7 @@ def _ensure_kb_process_rule(
 
 
 def _get_dataset_process_rule(db: Session, kb_id: str) -> KnowledgeBaseProcessRule | None:
+    """取知识库下最早创建的一条处理规则（用作数据集默认）。"""
     return (
         db.query(KnowledgeBaseProcessRule)
         .filter(KnowledgeBaseProcessRule.knowledge_base_id == kb_id)
@@ -305,6 +335,7 @@ async def _reindex_single_segment(
     segment: DocumentSegment,
     keywords_override: list[str] | None = None,
 ) -> None:
+    """单分段重新建索引：删旧向量/关键词后按知识库配置写回（编辑分段内容或关键词时用）。"""
     index_node_id = segment.index_node_id or segment.id
     segment.index_node_id = index_node_id
 
@@ -364,6 +395,7 @@ def _build_document_filters(
     query,
     status: str | None,
 ):
+    """按 status 筛选文档列表：available/disabled/archived/error，与前端筛选口径一致。"""
     if not status:
         return query
 
@@ -389,6 +421,8 @@ def _build_document_filters(
     return query.filter(Document.status == status)
 
 
+# ---------- 知识库 CRUD ----------
+
 @router.get("", response_model=ApiResponse)
 async def get_knowledge_bases(
     keyword: Optional[str] = Query(None, description="关键词"),
@@ -397,6 +431,7 @@ async def get_knowledge_bases(
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
+    """知识库列表：支持 keyword/search 搜索、分页。"""
     if not keyword and search:
         keyword = search
 
@@ -423,6 +458,7 @@ async def get_knowledge_bases(
 
 @router.get("/{kb_id}", response_model=ApiResponse)
 async def get_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
+    """单个知识库详情（含序列化后的 retrieval_model）。"""
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
@@ -432,6 +468,7 @@ async def get_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
 
 @router.post("", response_model=ApiResponse)
 async def create_knowledge_base(kb_data: KnowledgeBaseCreate, db: Session = Depends(get_db)):
+    """创建知识库并初始化默认 process_rule；名称不可重复。"""
     existing = db.query(KnowledgeBase).filter(KnowledgeBase.name == kb_data.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="知识库名称已存在")
@@ -462,6 +499,7 @@ async def create_knowledge_base(kb_data: KnowledgeBaseCreate, db: Session = Depe
 
 @router.post("/init", response_model=ApiResponse)
 async def init_knowledge_base(payload: KnowledgeBaseInitRequest, db: Session = Depends(get_db)):
+    """一次性创建知识库 + 可选批量创建文档（file_paths），共用 process_rule，全部入队。"""
     # 1) 创建知识库
     kb_payload = payload.knowledge_base
     existing = db.query(KnowledgeBase).filter(KnowledgeBase.name == kb_payload.name).first()
@@ -568,6 +606,7 @@ async def update_knowledge_base(kb_id: str, kb_data: KnowledgeBaseUpdate, db: Se
 
 @router.delete("/{kb_id}", response_model=ApiResponse)
 async def delete_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
+    """删除知识库；若为最后一个知识库则禁止删除。"""
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
@@ -584,6 +623,8 @@ async def delete_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
     return ApiResponse(success=True, message="知识库已删除")
 
 
+# ---------- 文档：列表、创建、详情、重命名、设置、预览、重新入队、索引状态 ----------
+
 @router.get("/{kb_id}/documents", response_model=ApiResponse)
 async def get_knowledge_base_documents(
     kb_id: str,
@@ -594,6 +635,7 @@ async def get_knowledge_base_documents(
     sort_order: str = Query("desc", description="asc/desc"),
     db: Session = Depends(get_db),
 ):
+    """文档列表：按 status 筛选、分页、排序；返回每条文档的 ingest_job 与 hit_count。"""
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
@@ -652,6 +694,7 @@ async def get_knowledge_base_documents(
 
 @router.post("/{kb_id}/documents", response_model=ApiResponse)
 async def create_knowledge_base_document(kb_id: str, payload: DocumentCreateRequest, db: Session = Depends(get_db)):
+    """按本地 file_path 创建文档记录并加入 ingest 队列；可选 batch 同批多文档。"""
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
@@ -711,6 +754,7 @@ async def create_knowledge_base_document(kb_id: str, payload: DocumentCreateRequ
 
 @router.get("/{kb_id}/documents/{doc_id}", response_model=ApiResponse)
 async def get_knowledge_base_document(kb_id: str, doc_id: str, db: Session = Depends(get_db)):
+    """文档详情：含 document_process_rule、dataset_process_rule、technical_parameters、segment_count、hit_count。"""
     doc = (
         db.query(Document)
         .filter(Document.id == doc_id, Document.knowledge_base_id == kb_id)
@@ -802,6 +846,7 @@ async def patch_document_settings(
     payload: DocumentSettingsUpdateRequest,
     db: Session = Depends(get_db),
 ):
+    """更新文档处理规则、检索配置等；不触发重新索引，需单独调用 reindex 入队。"""
     doc = (
         db.query(Document)
         .filter(Document.id == doc_id, Document.knowledge_base_id == kb_id)
@@ -877,6 +922,53 @@ async def patch_document_settings(
         message="文档设置保存成功",
     )
 
+
+@router.post("/{kb_id}/documents/{doc_id}/preview-chunks", response_model=ApiResponse)
+async def preview_document_chunks(
+    kb_id: str,
+    doc_id: str,
+    payload: PreviewChunksRequest,
+    db: Session = Depends(get_db),
+):
+    """按当前或传入的 process_rule 执行抽取与分段，返回 total_segments 与 preview；不落库、不建索引。"""
+    doc = (
+        db.query(Document)
+        .filter(Document.id == doc_id, Document.knowledge_base_id == kb_id)
+        .first()
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    process_rule_override = None
+    if payload.process_rule:
+        pr = payload.process_rule
+        rules = pr.get("rules") or {}
+        seg = (rules.get("segmentation") or {}) if isinstance(rules, dict) else {}
+        process_rule_override = {
+            "mode": pr.get("mode", "automatic"),
+            "rules": {
+                "segmentation": {
+                    "separator": seg.get("separator", "\n"),
+                    "max_tokens": int(seg.get("max_tokens") or 500),
+                    "chunk_overlap": int(seg.get("chunk_overlap") or 50),
+                },
+                "pre_processing_rules": rules.get("pre_processing_rules") if isinstance(rules, dict) else None,
+            },
+        }
+
+    try:
+        result = await indexing_runner.preview(
+            db=db,
+            document=doc,
+            process_rule_override=process_rule_override,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ApiResponse(success=True, data=result)
+
+
+# ---------- 分段：列表、创建、删除、更新、批量启用/禁用 ----------
 
 @router.get("/{kb_id}/documents/{doc_id}/segments", response_model=ApiResponse)
 async def get_document_segments(
@@ -1179,6 +1271,24 @@ async def patch_document_segments_status(
     )
 
 
+# ---------- 重新入队与索引状态 ----------
+
+@router.post("/{kb_id}/documents/{doc_id}/reindex", response_model=ApiResponse)
+async def reindex_document(kb_id: str, doc_id: str, db: Session = Depends(get_db)):
+    """将文档设为 indexing_status=waiting 并加入 ingest 队列（process 页「保存并处理」后调用）。"""
+    doc = db.query(Document).filter(Document.id == doc_id, Document.knowledge_base_id == kb_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc.archived:
+        raise HTTPException(status_code=400, detail="归档文档不可重新索引")
+    doc.indexing_status = "waiting"
+    doc.updated_at = datetime.utcnow()
+    ingest_queue_service.enqueue_document(db, doc.id, processing_mode=settings.ingest_default_mode)
+    db.commit()
+    db.refresh(doc)
+    return ApiResponse(success=True, data={"document_id": doc_id}, message="已加入索引队列")
+
+
 @router.get("/{kb_id}/documents/{doc_id}/indexing-status", response_model=ApiResponse)
 async def get_document_indexing_status(kb_id: str, doc_id: str, db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == doc_id, Document.knowledge_base_id == kb_id).first()
@@ -1243,6 +1353,8 @@ async def get_batch_indexing_status(kb_id: str, batch_id: str, db: Session = Dep
 
     return ApiResponse(success=True, data={"batch": batch_id, "documents": items})
 
+
+# ---------- 文档批量状态（启用/禁用/归档/取消归档） ----------
 
 @router.patch("/{kb_id}/documents/status/{action}/batch", response_model=ApiResponse)
 async def patch_documents_status_batch(
@@ -1331,8 +1443,11 @@ async def patch_documents_status_batch(
     )
 
 
+# ---------- 召回测试 ----------
+
 @router.post("/{kb_id}/hit-testing", response_model=ApiResponse)
 async def hit_testing(kb_id: str, payload: HitTestingRequest, db: Session = Depends(get_db)):
+    """召回测试：按 query 与可选 retrieval_model/document_ids 检索，返回命中的 records 与 hits。"""
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")

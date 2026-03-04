@@ -1,9 +1,14 @@
 'use client'
 
+/**
+ * 文档详情页：索引进度中显示 EmbeddingProgress，完成后显示分段列表与右侧元数据/编辑。
+ * 支持分段筛选、编辑 content/answer/keywords、启用/禁用、删除；编辑会触发单分段 reindex。
+ */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
+  ArrowLeft,
   CheckSquare,
   ChevronLeft,
   ChevronRight,
@@ -19,11 +24,17 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import EmbeddingProgress from '@/components/knowledge/embedding'
 import PageHeader from '@/components/layout/PageHeader'
 import { usePageContext } from '@/components/layout/PageContext'
 import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
 import { knowledgeBaseApi } from '@/lib/api'
 import type { DocumentModel, SegmentDetailModel } from '@/lib/knowledge/types'
+
+const EMBEDDING_VIEW_STATUSES = new Set(['queuing', 'indexing', 'parsing', 'cleaning', 'splitting', 'paused'])
+function isEmbeddingView(displayStatus?: string | null): boolean {
+  return EMBEDDING_VIEW_STATUSES.has((displayStatus || '').toLowerCase())
+}
 
 type SegmentFilterStatus = 'all' | 'enabled' | 'disabled'
 
@@ -80,10 +91,24 @@ export default function DocumentSegmentsPage() {
   const [addEnabled, setAddEnabled] = useState(true)
   const [addAnother, setAddAnother] = useState(true)
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
+  const loadDocumentOnly = useCallback(async () => {
     try {
-      // 按当前筛选条件同时拉取文档详情和分段列表，避免界面数据不一致。
+      const docRes = await knowledgeBaseApi.getDocument(kbId, docId)
+      if (docRes.data.success)
+        setDocumentInfo(docRes.data.data.document as DocumentModel)
+    }
+    catch {
+      // ignore
+    }
+    finally {
+      setLoading(false)
+    }
+  }, [kbId, docId])
+
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent)
+      setLoading(true)
+    try {
       const enabledParam = statusFilter === 'all' ? undefined : statusFilter === 'enabled'
       const [docRes, segRes] = await Promise.all([
         knowledgeBaseApi.getDocument(kbId, docId),
@@ -103,13 +128,21 @@ export default function DocumentSegmentsPage() {
       }
     }
     finally {
-      setLoading(false)
+      if (!silent)
+        setLoading(false)
     }
   }, [docId, kbId, searchKeyword, statusFilter])
 
+  const showEmbeddingView = isEmbeddingView(documentInfo?.display_status ?? documentInfo?.indexing_status)
+
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    loadDocumentOnly()
+  }, [loadDocumentOnly])
+
+  useEffect(() => {
+    if (!showEmbeddingView)
+      loadData(true)
+  }, [showEmbeddingView, loadData])
 
   const openEditDrawer = (segment: SegmentDetailModel) => {
     setEditingSegment(segment)
@@ -285,7 +318,19 @@ export default function DocumentSegmentsPage() {
     ]
   }, [documentInfo])
 
-  if (loading) {
+  const handleEmbeddingComplete = useCallback(() => {
+    loadDocumentOnly().then(() => loadData(true))
+  }, [loadDocumentOnly, loadData])
+
+  const processRuleSource = useMemo(() => {
+    const doc = documentInfo
+    const rule = doc?.document_process_rule ?? doc?.dataset_process_rule
+    if (!rule?.rules)
+      return null
+    return { mode: rule.mode, rules: rule.rules }
+  }, [documentInfo])
+
+  if (!documentInfo && loading) {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div className="text-gray-500">加载中...</div>
@@ -301,13 +346,112 @@ export default function DocumentSegmentsPage() {
         onOpenSidebar={onOpenSidebar}
       />
 
-      <div className="flex-1 overflow-y-auto p-6 md:p-8">
-        <div className="mx-auto max-w-[1440px]">
+      <div className="flex flex-1 flex-col overflow-y-auto p-6 md:p-8">
+        <div className="mx-auto w-full max-w-[1440px]">
           <KnowledgeDetailTabs knowledgeBaseId={kbId} />
 
-          <div className="flex h-[calc(100vh-220px)] min-h-[560px] rounded-2xl border border-gray-200 bg-white">
-            <div className="flex min-w-0 flex-1 flex-col px-4 pt-3">
-              <div className="sticky top-0 z-10 -mx-4 mb-3 flex flex-wrap items-center gap-2 border-b border-gray-100 bg-white px-4 pb-3 pt-1">
+          <div
+            className="flex min-h-[560px] rounded-2xl border border-gray-200 bg-white"
+            style={{ height: 'calc(100vh - 220px)' }}
+          >
+            {showEmbeddingView
+              ? (
+                  <>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <div className="flex min-h-16 flex-wrap items-center justify-between border-b border-gray-200 py-2.5 pl-3 pr-4">
+                        <Link
+                          href={`/knowledge-bases/${kbId}/documents`}
+                          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                        >
+                          <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                        <span className="mr-2 flex-1 truncate text-sm font-medium text-gray-800">
+                          {documentInfo?.filename}
+                        </span>
+                        <button
+                          type="button"
+                          className="ml-2 rounded-lg border border-gray-200 p-2 hover:bg-gray-50"
+                          onClick={() => setShowMetadataPanel(prev => !prev)}
+                        >
+                          {showMetadataPanel
+                            ? <LayoutPanelLeft className="h-4 w-4 text-gray-500" />
+                            : <LayoutPanelTop className="h-4 w-4 text-gray-500" />}
+                        </button>
+                      </div>
+                      <div className="relative flex min-h-0 flex-1 flex-col pl-5 pr-4 pt-3" style={{ height: 'calc(100% - 4rem)' }}>
+                        <EmbeddingProgress
+                          knowledgeBaseId={kbId}
+                          documentId={docId}
+                          indexingType={documentInfo?.technical_parameters?.indexing_technique}
+                          retrievalMethod={documentInfo?.technical_parameters?.retrieval_model?.search_method}
+                          processRule={processRuleSource}
+                          onComplete={handleEmbeddingComplete}
+                        />
+                      </div>
+                    </div>
+                    {showMetadataPanel && (
+                      <aside className="w-[360px] shrink-0 border-l border-gray-200 bg-gray-50/50 p-4">
+                        <div className="mb-4 text-sm font-semibold text-gray-800">文档信息</div>
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex">
+                            <span className="w-28 shrink-0 text-gray-500">文档名称</span>
+                            <span className="break-all text-gray-800">{documentInfo?.filename ?? '-'}</span>
+                          </div>
+                          <div className="flex">
+                            <span className="w-28 shrink-0 text-gray-500">状态</span>
+                            <span className="text-gray-800">{documentInfo?.display_status ?? documentInfo?.indexing_status ?? '-'}</span>
+                          </div>
+                        </div>
+                      </aside>
+                    )}
+                  </>
+                )
+              : (
+                  <>
+                    <div className="flex min-w-0 flex-1 flex-col px-4 pt-3">
+                      <div className="flex min-h-16 flex-wrap items-center justify-between border-b border-gray-200 py-2.5 pl-3 pr-4">
+                        <Link
+                          href={`/knowledge-bases/${kbId}/documents`}
+                          className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                        >
+                          <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                        <span className="mr-2 flex-1 truncate text-sm font-medium text-gray-800">
+                          {documentInfo?.filename}
+                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddDrawer(true)}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50"
+                          >
+                            <Plus className="size-4" />
+                            添加分段
+                          </button>
+                          <Link
+                            href={`/knowledge-bases/${kbId}/documents/${docId}/settings`}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 text-sm text-gray-700 shadow-sm hover:bg-gray-50"
+                          >
+                            <Settings2 className="size-4" />
+                            分段设置
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setIsCollapsedContent(prev => !prev)}
+                            className="inline-flex h-8 items-center rounded-lg border border-gray-300 bg-white px-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            {isCollapsedContent ? <LayoutPanelTop className="size-4" /> : <LayoutPanelLeft className="size-4" />}
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 hover:bg-gray-50"
+                            onClick={() => setShowMetadataPanel(prev => !prev)}
+                          >
+                            {showMetadataPanel ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="sticky top-0 z-10 -mx-4 mb-3 flex flex-wrap items-center gap-2 border-b border-gray-100 bg-white px-4 pb-3 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowAddDrawer(true)}
@@ -363,7 +507,7 @@ export default function DocumentSegmentsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={loadData}
+                  onClick={() => loadData(true)}
                   className="h-8 rounded-lg border border-gray-300 px-2.5 text-sm text-gray-700 hover:bg-gray-50"
                 >
                   <RefreshCw className="mr-1 inline size-3.5" />
@@ -567,6 +711,8 @@ export default function DocumentSegmentsPage() {
                 </div>
               </aside>
             )}
+                  </>
+                )}
           </div>
         </div>
       </div>

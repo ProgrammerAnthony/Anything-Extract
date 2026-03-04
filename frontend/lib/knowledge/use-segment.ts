@@ -1,6 +1,11 @@
-﻿import { knowledgeBaseApi } from '@/lib/api'
+/**
+ * 分段数据层：列表、更新、创建、批量删除。
+ * 更新 content/keywords 会触发后端单分段重新建索引。
+ */
+import { knowledgeBaseApi } from '@/lib/api'
 import type { SegmentDetailModel } from './types'
 
+/** 文档分段列表，可选 enabled、keyword 筛选 */
 export async function useSegmentList(
   knowledgeBaseId: string,
   documentId: string,
@@ -10,6 +15,7 @@ export async function useSegmentList(
   return response.data.data.segments as SegmentDetailModel[]
 }
 
+/** 更新分段（content/answer/keywords/enabled），后端会触发该分段重新建索引 */
 export async function useUpdateSegment(
   knowledgeBaseId: string,
   documentId: string,
@@ -25,6 +31,7 @@ export async function useUpdateSegment(
   return response.data.data.segment as SegmentDetailModel
 }
 
+/** 新建分段 */
 export async function useCreateSegment(
   knowledgeBaseId: string,
   documentId: string,
@@ -40,6 +47,7 @@ export async function useCreateSegment(
   return response.data.data.segment as SegmentDetailModel
 }
 
+/** 批量删除分段（同时删向量/关键词索引） */
 export async function useDeleteSegments(
   knowledgeBaseId: string,
   documentId: string,

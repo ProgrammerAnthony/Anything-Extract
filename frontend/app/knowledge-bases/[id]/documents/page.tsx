@@ -1,8 +1,12 @@
 'use client'
 
+/**
+ * 知识库文档列表页：文档表格、状态筛选、排序、上传、批量操作。
+ * 上传成功后跳转到该文档的 process 页（STEP2）；进行中文档轮询 indexing-status。
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import {
   Archive,
   ChevronDown,
@@ -22,6 +26,7 @@ import FileUploadDialog, { UploadProcessingMode } from '@/components/ui/FileUplo
 import { documentApi, knowledgeBaseApi } from '@/lib/api'
 import type { DocumentModel, KnowledgeBase } from '@/lib/knowledge/types'
 
+/** 处于队列或处理中的状态，用于轮询与展示「进行中」 */
 const ACTIVE_STATUSES = new Set(['queued', 'processing', 'parsing', 'cleaning', 'splitting', 'indexing', 'waiting'])
 
 const STATUS_OPTIONS = [
@@ -82,6 +87,7 @@ function getStatusClass(status: string) {
 
 export default function KnowledgeBaseDocumentsPage() {
   const params = useParams()
+  const router = useRouter()
   const kbId = params.id as string
   const { secondaryCollapsed, onOpenSidebar } = usePageContext()
 
@@ -196,10 +202,12 @@ export default function KnowledgeBaseDocumentsPage() {
         if (response.data.success && response.data.data?.document)
           uploadedDocs.push(response.data.data.document as DocumentModel)
       }
-      if (uploadedDocs.length > 0)
+      if (uploadedDocs.length > 0) {
         setDocuments(prev => mergeDocuments(prev, uploadedDocs))
-
-      await loadDocuments(true)
+        await loadDocuments(true)
+        setUploadDialogOpen(false)
+        router.push(`/knowledge-bases/${kbId}/documents/${uploadedDocs[0].id}/process`)
+      }
     }
     catch (error) {
       // eslint-disable-next-line no-console

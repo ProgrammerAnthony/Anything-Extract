@@ -1,44 +1,49 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+/**
+ * 召回测试页：输入 query、可选检索设置与文档范围，展示命中记录与历史查询。
+ * 检索设置在抽屉内配置（向量/全文/混合/关键词、Top K、分数阈值）。
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import {
   ArrowDown,
   Clock3,
-  Database,
-  Files,
+  ExternalLink,
+  Grid3X3,
   History,
   PlayCircle,
-  Search,
-  Sparkles,
   Target,
 } from 'lucide-react'
 
 import PageHeader from '@/components/layout/PageHeader'
 import { usePageContext } from '@/components/layout/PageContext'
 import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
+import { ModifyRetrievalModal } from '@/components/knowledge/hit-testing'
 import { knowledgeBaseApi } from '@/lib/api'
 import type { HitTestingQuery, HitTestingRecord, KnowledgeBase, RetrievalConfig } from '@/lib/knowledge/types'
 
-type SearchMethod = RetrievalConfig['search_method']
+const METHOD_LABELS: Record<string, string> = {
+  semantic_search: '向量检索',
+  full_text_search: '全文检索',
+  hybrid_search: '混合检索',
+  keyword_search: '关键词检索',
+}
 
-const HIGH_QUALITY_METHOD_OPTIONS: Array<{
-  value: SearchMethod
-  title: string
-  icon: ReactNode
-}> = [
-  { value: 'semantic_search', title: '向量检索', icon: <Database className="size-3.5" /> },
-  { value: 'full_text_search', title: '全文检索', icon: <Files className="size-3.5" /> },
-  { value: 'hybrid_search', title: '混合检索', icon: <Sparkles className="size-3.5" /> },
-]
-
-const ECONOMY_METHOD_OPTIONS: Array<{
-  value: SearchMethod
-  title: string
-  icon: ReactNode
-}> = [
-  { value: 'keyword_search', title: '关键词检索', icon: <Search className="size-3.5" /> },
-]
+function defaultRetrievalConfig(kb: KnowledgeBase | null): RetrievalConfig {
+  const base = kb?.retrieval_model
+  const indexingTechnique = kb?.indexing_technique ?? 'high_quality'
+  return {
+    search_method: indexingTechnique === 'economy' ? 'keyword_search' : (base?.search_method || 'semantic_search'),
+    reranking_enable: base?.reranking_enable ?? false,
+    reranking_model: base?.reranking_model,
+    reranking_mode: base?.reranking_mode,
+    top_k: base?.top_k ?? 3,
+    score_threshold_enabled: base?.score_threshold_enabled ?? false,
+    score_threshold: base?.score_threshold ?? 0.5,
+    weights: base?.weights ?? null,
+  }
+}
 
 function normalizeRecords(data: {
   records?: HitTestingRecord[]
@@ -86,19 +91,10 @@ export default function KnowledgeBaseHitTestingPage() {
   const [results, setResults] = useState<HitTestingRecord[]>([])
   const [historyQueries, setHistoryQueries] = useState<HitTestingQuery[]>([])
   const [selectedQueryId, setSelectedQueryId] = useState<string | null>(null)
-
-  const [searchMethod, setSearchMethod] = useState<SearchMethod>('semantic_search')
-  const [topK, setTopK] = useState(3)
-  const [scoreThresholdEnabled, setScoreThresholdEnabled] = useState(false)
-  const [scoreThreshold, setScoreThreshold] = useState(0.5)
   const [sortTimeOrder, setSortTimeOrder] = useState<'asc' | 'desc'>('desc')
 
-  const methodOptions = useMemo(() => {
-    // 经济模式固定关键词检索；高质量模式支持向量/全文/混合。
-    if (knowledgeBase?.indexing_technique === 'economy')
-      return ECONOMY_METHOD_OPTIONS
-    return HIGH_QUALITY_METHOD_OPTIONS
-  }, [knowledgeBase?.indexing_technique])
+  const [retrievalConfig, setRetrievalConfig] = useState<RetrievalConfig>(() => defaultRetrievalConfig(null))
+  const [isShowModifyRetrievalModal, setIsShowModifyRetrievalModal] = useState(false)
 
   const loadHistoryQueries = useCallback(async () => {
     setRecordsLoading(true)
@@ -120,26 +116,12 @@ export default function KnowledgeBaseHitTestingPage() {
 
       const kb = response.data.data.knowledge_base as KnowledgeBase
       setKnowledgeBase(kb)
-      const defaultMethod = (kb.retrieval_model?.search_method || 'semantic_search') as SearchMethod
-      if (kb.indexing_technique === 'economy')
-        setSearchMethod('keyword_search')
-      else if (defaultMethod === 'keyword_search')
-        setSearchMethod('semantic_search')
-      else
-        setSearchMethod(defaultMethod)
-      setTopK(kb.retrieval_model?.top_k || 3)
-      setScoreThresholdEnabled(Boolean(kb.retrieval_model?.score_threshold_enabled))
-      setScoreThreshold(kb.retrieval_model?.score_threshold ?? 0.5)
+      setRetrievalConfig(defaultRetrievalConfig(kb))
     }
 
     load()
     loadHistoryQueries()
   }, [kbId, loadHistoryQueries])
-
-  useEffect(() => {
-    if (!methodOptions.some(item => item.value === searchMethod))
-      setSearchMethod(methodOptions[0].value)
-  }, [methodOptions, searchMethod])
 
   const runHitTesting = useCallback(async (overrideQuery?: string) => {
     const nextQuery = (overrideQuery ?? queryText).trim()
@@ -150,15 +132,17 @@ export default function KnowledgeBaseHitTestingPage() {
 
     setLoading(true)
     try {
-      // 每次测试都带上当前页面配置，保证右侧结果与当前检索参数一致。
       const response = await knowledgeBaseApi.hitTesting(kbId, {
         query: nextQuery,
         retrieval_model: {
-          ...(knowledgeBase?.retrieval_model || {}),
-          search_method: searchMethod,
-          top_k: topK,
-          score_threshold_enabled: scoreThresholdEnabled,
-          score_threshold: scoreThreshold,
+          search_method: retrievalConfig.search_method,
+          top_k: retrievalConfig.top_k,
+          score_threshold_enabled: retrievalConfig.score_threshold_enabled,
+          score_threshold: retrievalConfig.score_threshold,
+          reranking_enable: retrievalConfig.reranking_enable,
+          reranking_model: retrievalConfig.reranking_model,
+          reranking_mode: retrievalConfig.reranking_mode,
+          weights: retrievalConfig.weights,
         },
       })
 
@@ -175,11 +159,6 @@ export default function KnowledgeBaseHitTestingPage() {
         }>
       }
 
-      if (data.retrieval_model?.search_method)
-        setSearchMethod(data.retrieval_model.search_method as SearchMethod)
-      if (typeof data.retrieval_model?.top_k === 'number')
-        setTopK(data.retrieval_model.top_k)
-
       setResults(normalizeRecords(data))
       await loadHistoryQueries()
     }
@@ -190,7 +169,7 @@ export default function KnowledgeBaseHitTestingPage() {
     finally {
       setLoading(false)
     }
-  }, [kbId, knowledgeBase, loadHistoryQueries, queryText, scoreThreshold, scoreThresholdEnabled, searchMethod, topK])
+  }, [kbId, loadHistoryQueries, queryText, retrievalConfig])
 
   const sortedHistoryQueries = useMemo(() => {
     return [...historyQueries].sort((a, b) => {
@@ -210,45 +189,37 @@ export default function KnowledgeBaseHitTestingPage() {
         onOpenSidebar={onOpenSidebar}
       />
 
-      <div className="flex-1 overflow-y-auto p-6 md:p-8">
+      <div className="flex-1 overflow-y-auto p-6 pl-6 md:p-8 md:pl-8">
         <div className="mx-auto max-w-[1440px]">
           <KnowledgeDetailTabs knowledgeBaseId={kbId} />
 
-          <div className="flex min-h-[680px] gap-6 pl-2">
-            <div className="flex min-w-0 flex-1 flex-col py-2">
-              <div className="mb-3">
-                <h2 className="text-base font-semibold text-gray-900">召回测试</h2>
-                <p className="text-[13px] text-gray-500">输入查询问题，验证当前知识库分段的召回效果。</p>
+          <div className="relative flex min-h-[680px] w-full gap-x-6">
+            <div className="flex min-w-0 flex-1 flex-col py-3">
+              <div className="mb-4 flex flex-col justify-center">
+                <h1 className="text-base font-semibold text-gray-900">召回测试</h1>
+                <p className="mt-0.5 text-[13px] font-normal leading-4 text-gray-500">输入查询问题，验证当前知识库分段的召回效果。</p>
               </div>
 
-              <div className="relative mb-6 h-80 rounded-xl bg-gradient-to-r from-[#b7adff] to-[#7ba8ff] p-[1px] shadow-sm">
-                <div className="flex h-full flex-col overflow-hidden rounded-[11px] bg-[#f7f9ff]">
+              <div className="relative mb-6 h-80 shrink-0 overflow-hidden rounded-xl bg-gradient-to-r from-[#b7adff] to-[#7ba8ff] p-0.5 shadow-sm">
+                <div className="flex h-full flex-col overflow-hidden rounded-[10px] bg-[#f7f9ff]">
                   <div className="flex items-center justify-between px-3 pb-1 pt-2.5">
                     <span className="text-xs font-semibold uppercase text-gray-700">源文本</span>
-                    <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 text-xs">
-                      {methodOptions.map(item => (
-                        <button
-                          key={item.value}
-                          type="button"
-                          onClick={() => setSearchMethod(item.value)}
-                          className={`inline-flex h-6 items-center gap-1 rounded-md px-2 transition ${
-                            searchMethod === item.value
-                              ? 'bg-[#f1efff] text-[#5147e5]'
-                              : 'text-gray-600 hover:bg-gray-100'
-                          }`}
-                        >
-                          {item.icon}
-                          {item.title}
-                        </button>
-                      ))}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsShowModifyRetrievalModal(true)}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-300"
+                    >
+                      <Grid3X3 className="size-3.5 text-[#5147e5]" />
+                      {METHOD_LABELS[retrievalConfig.search_method] ?? '向量检索'}
+                      <ExternalLink className="size-3 text-gray-400" />
+                    </button>
                   </div>
 
                   <div className={`relative flex-1 overflow-hidden border-t border-gray-200 bg-white px-4 pb-0 pt-3 ${queryText.length > 200 ? 'border-red-300' : ''}`}>
                     <textarea
                       value={queryText}
                       onChange={e => setQueryText(e.target.value)}
-                      placeholder="输入你要测试的查询内容"
+                      placeholder="请输入文本，建议使用简短的陈述句。"
                       className="h-full w-full resize-none border-none bg-transparent text-sm text-gray-700 outline-none"
                     />
                     <div className={`absolute right-2 top-1.5 rounded px-1.5 py-0.5 text-[10px] uppercase ${
@@ -259,44 +230,7 @@ export default function KnowledgeBaseHitTestingPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 border-t border-gray-200 bg-white px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1 text-xs text-gray-600">
-                        Top K
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={topK}
-                          onChange={e => setTopK(Math.max(1, Math.min(20, Number(e.target.value) || 3)))}
-                          className="h-7 w-14 rounded-md border border-gray-300 px-1.5"
-                        />
-                      </label>
-                      <label className="flex items-center gap-1 text-xs text-gray-600">
-                        <input
-                          type="checkbox"
-                          checked={scoreThresholdEnabled}
-                          onChange={e => setScoreThresholdEnabled(e.target.checked)}
-                        />
-                        阈值
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        disabled={!scoreThresholdEnabled}
-                        value={scoreThreshold}
-                        onChange={e => setScoreThreshold(Number(e.target.value) || 0)}
-                        className="h-7 w-16 rounded-md border border-gray-300 px-1.5 text-xs disabled:bg-gray-100"
-                      />
-                      {knowledgeBase?.indexing_technique === 'economy' && (
-                        <span className="rounded bg-[#fff7ed] px-1.5 py-0.5 text-[11px] text-[#b45309]">
-                          经济模式固定关键词检索
-                        </span>
-                      )}
-                    </div>
-
+                  <div className="flex items-center justify-end border-t border-gray-200 bg-white px-4 py-2">
                     <button
                       type="button"
                       onClick={() => runHitTesting()}
@@ -304,13 +238,13 @@ export default function KnowledgeBaseHitTestingPage() {
                       className="inline-flex h-8 items-center rounded-lg bg-[#5147e5] px-3 text-xs font-medium text-white hover:bg-[#453ac8] disabled:cursor-not-allowed disabled:bg-gray-300"
                     >
                       <PlayCircle className="mr-1 size-4" />
-                      {loading ? '测试中' : '开始测试'}
+                      {loading ? '测试中' : '测试'}
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="mb-2 text-base font-semibold text-gray-900">查询记录</div>
+              <div className="mb-3 mt-6 text-base font-semibold text-gray-900">查询记录</div>
               {recordsLoading
                 ? (
                     <div className="flex flex-1 items-center justify-center text-sm text-gray-400">记录加载中...</div>
@@ -318,10 +252,10 @@ export default function KnowledgeBaseHitTestingPage() {
                 : sortedHistoryQueries.length === 0
                   ? (
                       <div className="rounded-2xl bg-[#f6f8fe] p-5">
-                        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-[10px] border border-gray-200 bg-white shadow-sm">
+                        <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-[10px] border border-gray-200 bg-white shadow-sm">
                           <History className="size-5 text-gray-400" />
                         </div>
-                        <div className="text-[13px] text-gray-500">暂无最近检索记录</div>
+                        <div className="mt-3 text-[13px] text-gray-500">暂无最近检索记录</div>
                       </div>
                     )
                   : (
@@ -376,7 +310,7 @@ export default function KnowledgeBaseHitTestingPage() {
                     )}
             </div>
 
-            <div className="flex w-[48%] min-w-[420px] flex-col pt-2">
+            <div className="flex min-w-[420px] flex-1 flex-col pt-3" style={{ maxWidth: '48%' }}>
               {loading
                 ? (
                     <div className="flex h-full flex-col rounded-tl-2xl bg-[#f7f8fc] px-4 py-3">
@@ -388,13 +322,13 @@ export default function KnowledgeBaseHitTestingPage() {
                 : results.length === 0
                   ? (
                       <div className="flex h-full flex-col items-center justify-center rounded-tl-2xl bg-[#f7f8fc] px-4 py-3">
-                        <Target className="mb-3 size-14 text-gray-300" />
-                        <div className="text-[13px] text-gray-400">开始测试后，右侧展示召回结果</div>
+                        <Target className="mt-3 size-14 text-gray-400" />
+                        <div className="mt-3 text-[13px] text-gray-500">开始测试后，右侧展示召回结果</div>
                       </div>
                     )
                   : (
                       <div className="flex h-full flex-col rounded-tl-2xl bg-[#f7f8fc] px-4 py-3">
-                        <div className="mb-2 pl-2 text-sm font-semibold text-gray-800">
+                        <div className="mb-2 shrink-0 pl-2 text-base font-semibold leading-6 text-gray-900">
                           召回结果（{results.length}）
                         </div>
                         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -444,6 +378,28 @@ export default function KnowledgeBaseHitTestingPage() {
           </div>
         </div>
       </div>
+
+      {isShowModifyRetrievalModal && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/30"
+            aria-hidden
+            onClick={() => setIsShowModifyRetrievalModal(false)}
+          />
+          <div className="fixed right-0 top-0 z-50 flex h-full max-h-screen w-full max-w-[640px] flex-col overflow-hidden rounded-l-xl bg-white shadow-2xl sm:mr-2 sm:mt-4 sm:mb-4 sm:max-h-[calc(100vh-32px)]">
+            <ModifyRetrievalModal
+              indexMethod={knowledgeBase?.indexing_technique ?? 'high_quality'}
+              value={retrievalConfig}
+              isShow={isShowModifyRetrievalModal}
+              onHide={() => setIsShowModifyRetrievalModal(false)}
+              onSave={(value) => {
+                setRetrievalConfig(value)
+                setIsShowModifyRetrievalModal(false)
+              }}
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -1,4 +1,9 @@
-"""索引主流程实现（适配本项目）。"""
+"""
+索引主流程：单文档从「原始文件」到「分段落库 + 向量/关键词索引」的完整流水线。
+
+流程：Extract（解析文件）-> Transform（清洗+分段）-> Load Segments（写 document_segments）
+-> Load（写向量库与关键词表）。preview() 仅做 Extract+Transform 并返回预览，不落库不建索引。
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,11 +41,13 @@ class IndexingSummary:
 
 
 class IndexingRunner:
-    """索引执行器。"""
+    """
+    索引执行器：负责单文档的解析、清洗分段、分段落库、向量与关键词双写。
+    向量库单例复用；embedding 按知识库配置的模型动态获取并缓存。
+    """
 
     def __init__(self):
         self.parser = DocumentParser()
-        # 向量库实例全局复用；embedding provider 按知识库模型动态选择。
         self.vector_db = LanceDBProvider(settings.lance_db_path)
         self._embedding_provider_cache: dict[str, OllamaEmbeddingProvider] = {}
 
@@ -109,7 +116,33 @@ class IndexingRunner:
 
         return IndexingSummary(total_segments=len(transformed_docs), tokens=tokens, word_count=word_count)
 
+    async def preview(
+        self,
+        db: Session,
+        document: Document,
+        process_rule_override: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """仅执行抽取与分段，返回预估块数与预览内容（不落库、不建索引）。"""
+        knowledge_base = db.query(KnowledgeBase).filter(KnowledgeBase.id == document.knowledge_base_id).first()
+        if not knowledge_base:
+            raise ValueError(f"knowledge base not found: {document.knowledge_base_id}")
+
+        process_rule = process_rule_override or self._resolve_process_rule(db=db, document=document, knowledge_base=knowledge_base)
+        text_docs = await self._extract(document)
+        transformed_docs = self._transform(
+            text_docs=text_docs,
+            process_rule=process_rule,
+            doc_form=document.doc_form,
+        )
+        preview_limit = 30
+        preview = [{"content": doc.page_content} for doc in transformed_docs[:preview_limit]]
+        return {
+            "total_segments": len(transformed_docs),
+            "preview": preview,
+        }
+
     async def _extract(self, document: Document) -> list[DocumentNode]:
+        """从文档 file_path 解析文件，按页转为 DocumentNode 列表（page_content + metadata）。"""
         data_source_info = document.data_source_info_dict
         file_path = data_source_info.get("file_path") or document.file_path
         if not file_path:
@@ -140,6 +173,7 @@ class IndexingRunner:
         document: Document,
         knowledge_base: KnowledgeBase,
     ) -> dict[str, Any]:
+        """解析文档使用的处理规则：优先文档绑定 rule，否则取知识库首条或创建默认。返回 {mode, rules}。"""
         process_rule = None
         if document.process_rule_id:
             process_rule = (
@@ -175,6 +209,7 @@ class IndexingRunner:
         }
 
     def _transform(self, text_docs: list[DocumentNode], process_rule: dict, doc_form: str | None) -> list[DocumentNode]:
+        """清洗 + 按规则分段；支持 qa_model 时拆 Q/A 并写入 metadata.answer。"""
         segmentation = self._resolve_segmentation(process_rule)
         splitter = self._get_splitter(
             separator=segmentation.get("separator", "\n"),
@@ -214,6 +249,7 @@ class IndexingRunner:
         return all_documents
 
     def _resolve_segmentation(self, process_rule: dict) -> dict[str, Any]:
+        """从 process_rule 取出 segmentation（separator/max_tokens/chunk_overlap），兼容 delimiter。"""
         mode = process_rule.get("mode")
         rules = process_rule.get("rules") or {}
         if mode == "automatic":
@@ -249,7 +285,7 @@ class IndexingRunner:
         knowledge_base: KnowledgeBase,
         documents: list[DocumentNode],
     ) -> None:
-        # 重新索引时先清空历史分段，避免重复命中。
+        """将分段写入 document_segments（先删旧再插入）；更新文档状态为 indexing。"""
         db.query(DocumentSegment).filter(DocumentSegment.document_id == document.id).delete()
 
         now = datetime.utcnow()
@@ -285,12 +321,11 @@ class IndexingRunner:
         knowledge_base: KnowledgeBase,
         documents: list[DocumentNode],
     ) -> int:
+        """双写向量与关键词索引；按 knowledge_base.indexing_technique 决定失败时是否抛错。返回总 token 数。"""
         if not documents:
             return 0
 
         total_tokens = 0
-
-        # 默认双写：向量 + 关键词都写，便于高质量/经济模式快速切换。
         vector_error = None
         try:
             texts = [item.page_content for item in documents]
@@ -338,6 +373,7 @@ class IndexingRunner:
         return total_tokens
 
     def _get_embedding_provider(self, knowledge_base: KnowledgeBase) -> OllamaEmbeddingProvider:
+        """按知识库 embedding 模型获取 Ollama provider，同模型复用缓存。"""
         embedding_model = knowledge_base.embedding_model or settings.ollama_embedding_model
         cache_key = f"ollama::{embedding_model}"
         provider = self._embedding_provider_cache.get(cache_key)

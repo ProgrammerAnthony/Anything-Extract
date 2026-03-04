@@ -1,6 +1,11 @@
-﻿import { knowledgeBaseApi } from '@/lib/api'
+/**
+ * 知识库数据层：列表、详情、文档列表。
+ * 均为异步请求封装，返回解包后的 data，供页面直接使用。
+ */
+import { knowledgeBaseApi } from '@/lib/api'
 import type { KnowledgeBase, DocumentModel } from './types'
 
+/** 知识库列表，支持关键词与分页 */
 export async function useKnowledgeBaseList(params?: { keyword?: string; page?: number; limit?: number }) {
   const response = await knowledgeBaseApi.getAll(params)
   return response.data.data as {
@@ -14,11 +19,13 @@ export async function useKnowledgeBaseList(params?: { keyword?: string; page?: n
   }
 }
 
+/** 单个知识库详情（含 retrieval_model 等配置） */
 export async function useKnowledgeBaseDetail(id: string) {
   const response = await knowledgeBaseApi.getById(id)
   return response.data.data.knowledge_base as KnowledgeBase
 }
 
+/** 知识库下文档列表，支持 status 筛选与排序 */
 export async function useKnowledgeBaseDocuments(
   id: string,
   params?: {
