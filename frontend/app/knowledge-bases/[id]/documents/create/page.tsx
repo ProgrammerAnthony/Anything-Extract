@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
@@ -7,6 +7,7 @@ import PageHeader from '@/components/layout/PageHeader'
 import { usePageContext } from '@/components/layout/PageContext'
 import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
 import { knowledgeBaseApi } from '@/lib/api'
+import { useToast } from '@/components/ui/Toast'
 
 export default function KnowledgeBaseDocumentCreatePage() {
   const params = useParams()
@@ -19,10 +20,11 @@ export default function KnowledgeBaseDocumentCreatePage() {
   const [fileType, setFileType] = useState('pdf')
   const [docForm, setDocForm] = useState<'text_model' | 'qa_model' | 'hierarchical_model'>('text_model')
   const [saving, setSaving] = useState(false)
+  const { showToast } = useToast()
 
   const submit = async () => {
     if (!filePath.trim()) {
-      alert('请输入本地文件路径')
+      showToast({ title: '请输入本地文件路径', variant: 'info' })
       return
     }
 
@@ -34,13 +36,17 @@ export default function KnowledgeBaseDocumentCreatePage() {
         file_type: fileType,
         doc_form: docForm,
       })
-      alert('文档已加入索引队列')
+      showToast({ title: '文档已加入索引队列', variant: 'success' })
       router.push(`/knowledge-bases/${kbId}/documents`)
     }
     catch (error: any) {
       // eslint-disable-next-line no-console
       console.error(error)
-      alert(error?.response?.data?.detail || '创建失败，请检查路径是否正确')
+      showToast({
+        title: '创建失败',
+        description: error?.response?.data?.detail || '请检查路径是否正确',
+        variant: 'error',
+      })
     }
     finally {
       setSaving(false)

@@ -2,6 +2,7 @@
 
 import { DragEvent, useRef, useState } from 'react';
 import { File, Upload, X } from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
 
 export type UploadProcessingMode = 'queue' | 'immediate';
 
@@ -32,6 +33,7 @@ export default function FileUploadDialog({
   const [isDragging, setIsDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
 
   if (!open) return null;
 
@@ -41,13 +43,21 @@ export default function FileUploadDialog({
     const validFiles: File[] = [];
     Array.from(selectedFiles).forEach((file) => {
       if (file.size > maxSize * 1024 * 1024) {
-        alert(`${file.name} 文件过大，最大支持 ${maxSize}MB`);
+        showToast({
+          title: '文件过大',
+          description: `${file.name} 超出大小限制（最大 ${maxSize}MB）`,
+          variant: 'error',
+        });
         return;
       }
 
       const extension = `.${file.name.split('.').pop()?.toLowerCase()}`;
       if (accept && !accept.split(',').includes(extension)) {
-        alert(`${file.name} 文件类型不支持`);
+        showToast({
+          title: '不支持的文件类型',
+          description: `${file.name} 类型不在允许范围内`,
+          variant: 'error',
+        });
         return;
       }
 

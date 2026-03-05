@@ -7,6 +7,8 @@ import PageHeader from '@/components/layout/PageHeader';
 import TagCard from '@/components/tags/TagCard';
 import { usePageContext } from '@/components/layout/PageContext';
 import { Plus } from 'lucide-react';
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 
 interface Tag {
   id: string;
@@ -21,8 +23,10 @@ interface Tag {
 export default function TagsPage() {
   const { secondaryCollapsed, onOpenSidebar } = usePageContext();
   const router = useRouter();
+  const { showToast } = useToast()
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingDeleteTag, setPendingDeleteTag] = useState<Tag | null>(null)
 
   useEffect(() => {
     loadTags();
@@ -42,13 +46,13 @@ export default function TagsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个标签吗？')) return;
-    
     try {
       await tagApi.delete(id);
-      loadTags();
+      await loadTags();
+      showToast({ title: '删除成功', variant: 'success' })
     } catch (error) {
       console.error('删除标签失败:', error);
+      showToast({ title: '删除失败', description: '请稍后重试', variant: 'error' })
     }
   };
 
@@ -93,11 +97,29 @@ export default function TagsPage() {
 
             {/* 标签卡片列表 */}
             {tags.map((tag) => (
-              <TagCard key={tag.id} tag={tag} onDelete={handleDelete} />
+              <TagCard
+                key={tag.id}
+                tag={tag}
+                onRequestDelete={(t) => setPendingDeleteTag(t)}
+              />
             ))}
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!pendingDeleteTag}
+        title="确认删除该标签？"
+        description={pendingDeleteTag ? `将删除「${pendingDeleteTag.name}」，删除后无法恢复` : '删除后无法恢复'}
+        type="danger"
+        onClose={() => setPendingDeleteTag(null)}
+        onConfirm={() => {
+          const id = pendingDeleteTag?.id
+          setPendingDeleteTag(null)
+          if (id)
+            void handleDelete(id)
+        }}
+      />
     </div>
   );
 }

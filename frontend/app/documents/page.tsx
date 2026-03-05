@@ -6,6 +6,10 @@ import Link from 'next/link';
 import { Eye, FileText, Search, Trash2, Upload } from 'lucide-react';
 
 import { documentApi } from '@/lib/api';
+import LoadingState from '@/components/ui/LoadingState';
+import EmptyState from '@/components/ui/EmptyState';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import { useToast } from '@/components/ui/Toast';
 
 interface DocumentItem {
   id: string;
@@ -20,6 +24,8 @@ export default function 文档列表Page() {
   const [documents, set文档列表] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const load文档列表 = async () => {
     try {
@@ -29,6 +35,7 @@ export default function 文档列表Page() {
       }
     } catch (error) {
       console.error('加载文档失败:', error);
+      showToast({ title: '加载文档失败', variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -39,13 +46,13 @@ export default function 文档列表Page() {
   }, []);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这个文档吗？')) return;
-
     try {
       await documentApi.delete(id);
       set文档列表((prev) => prev.filter((doc) => doc.id !== id));
+      showToast({ title: '删除成功', variant: 'success' });
     } catch (error) {
       console.error('删除文档失败:', error);
+      showToast({ title: '删除文档失败', variant: 'error' });
     }
   };
 
@@ -85,11 +92,7 @@ export default function 文档列表Page() {
   };
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-gray-500">加载中...</div>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
@@ -151,7 +154,7 @@ export default function 文档列表Page() {
                       <Eye size={16} />
                     </Link>
                     <button
-                      onClick={() => handleDelete(doc.id)}
+                      onClick={() => setPendingDeleteId(doc.id)}
                       className="rounded p-1.5 text-gray-600 transition-colors hover:bg-gray-50 hover:text-red-500"
                       title="删除"
                     >
@@ -163,20 +166,34 @@ export default function 文档列表Page() {
             ))}
           </div>
         ) : (
-          <div className="rounded-lg border border-gray-200 bg-white py-16 text-center">
-            <FileText className="mx-auto mb-4 text-gray-300" size={48} />
-            <p className="mb-4 text-gray-500">{searchQuery ? '未找到匹配文档' : '暂无文档'}</p>
-            {!searchQuery && (
-              <button
-                onClick={() => router.push('/knowledge-bases')}
-                className="rounded-lg bg-[#5147e5] px-4 py-2 text-white transition-colors hover:bg-[#4338ca]"
-              >
-                去上传文档
-              </button>
-            )}
-          </div>
+          <EmptyState
+            title={searchQuery ? '未找到匹配文档' : '暂无文档'}
+            description={!searchQuery ? '去知识库上传文档后，可以在此总览所有文档。' : undefined}
+            action={
+              !searchQuery && (
+                <button
+                  onClick={() => router.push('/knowledge-bases')}
+                  className="rounded-lg bg-[#5147e5] px-4 py-2 text-white transition-colors hover:bg-[#4338ca]"
+                >
+                  去上传文档
+                </button>
+              )
+            }
+          />
         )}
       </div>
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="确认删除该文档？"
+        description="删除后无法恢复"
+        type="danger"
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) void handleDelete(id);
+        }}
+      />
     </div>
   );
 }

@@ -22,6 +22,7 @@ import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
 import { ModifyRetrievalModal } from '@/components/knowledge/hit-testing'
 import { knowledgeBaseApi } from '@/lib/api'
 import type { HitTestingQuery, HitTestingRecord, KnowledgeBase, RetrievalConfig } from '@/lib/knowledge/types'
+import { useToast } from '@/components/ui/Toast'
 
 const METHOD_LABELS: Record<string, string> = {
   semantic_search: '向量检索',
@@ -96,6 +97,8 @@ export default function KnowledgeBaseHitTestingPage() {
   const [retrievalConfig, setRetrievalConfig] = useState<RetrievalConfig>(() => defaultRetrievalConfig(null))
   const [isShowModifyRetrievalModal, setIsShowModifyRetrievalModal] = useState(false)
 
+  const { showToast } = useToast()
+
   const loadHistoryQueries = useCallback(async () => {
     setRecordsLoading(true)
     try {
@@ -126,7 +129,7 @@ export default function KnowledgeBaseHitTestingPage() {
   const runHitTesting = useCallback(async (overrideQuery?: string) => {
     const nextQuery = (overrideQuery ?? queryText).trim()
     if (!nextQuery) {
-      alert('请输入查询问题')
+      showToast({ title: '请输入查询问题', variant: 'info' })
       return
     }
 
@@ -164,7 +167,7 @@ export default function KnowledgeBaseHitTestingPage() {
     }
     catch (error: any) {
       const msg = error?.response?.data?.detail || error?.message || '召回测试失败'
-      alert(msg)
+      showToast({ title: '召回测试失败', description: msg, variant: 'error' })
     }
     finally {
       setLoading(false)

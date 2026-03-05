@@ -6,7 +6,7 @@ import { knowledgeBaseApi } from '@/lib/api'
 import type { DocumentModel, SegmentDetailModel } from './types'
 
 /** 指定知识库下的文档列表（分页、状态、排序） */
-export async function useDocumentList(
+export async function fetchDocumentList(
   knowledgeBaseId: string,
   params?: {
     page?: number
@@ -29,13 +29,13 @@ export async function useDocumentList(
 }
 
 /** 单文档详情（含 process_rule、technical_parameters、segment_count 等） */
-export async function useDocumentDetail(knowledgeBaseId: string, documentId: string) {
+export async function fetchDocumentDetail(knowledgeBaseId: string, documentId: string) {
   const response = await knowledgeBaseApi.getDocument(knowledgeBaseId, documentId)
   return response.data.data.document as DocumentModel
 }
 
 /** 文档分段列表，可选按 enabled、keyword 筛选 */
-export async function useDocumentSegments(
+export async function fetchDocumentSegments(
   knowledgeBaseId: string,
   documentId: string,
   params?: { enabled?: boolean; keyword?: string },

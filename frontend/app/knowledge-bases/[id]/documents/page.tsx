@@ -25,6 +25,10 @@ import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
 import FileUploadDialog, { UploadProcessingMode } from '@/components/ui/FileUploadDialog'
 import { documentApi, knowledgeBaseApi } from '@/lib/api'
 import type { DocumentModel, KnowledgeBase } from '@/lib/knowledge/types'
+import LoadingState from '@/components/ui/LoadingState'
+import EmptyState from '@/components/ui/EmptyState'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
 
 /** 处于队列或处理中的状态，用于轮询与展示「进行中」 */
 const ACTIVE_STATUSES = new Set(['queued', 'processing', 'parsing', 'cleaning', 'splitting', 'indexing', 'waiting'])
@@ -111,6 +115,9 @@ export default function KnowledgeBaseDocumentsPage() {
   const [renameSubmitting, setRenameSubmitting] = useState(false)
 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [pendingBatchDelete, setPendingBatchDelete] = useState(false)
+  const { showToast } = useToast()
 
   const loadKnowledgeBase = useCallback(async () => {
     const response = await knowledgeBaseApi.getById(kbId)
@@ -141,7 +148,7 @@ export default function KnowledgeBaseDocumentsPage() {
         const msg = error?.response?.data?.detail || error?.message || '加载文档列表失败'
         // eslint-disable-next-line no-console
         console.error(msg, error)
-        alert(msg)
+        showToast({ title: '加载文档列表失败', description: msg, variant: 'error' })
       }
       finally {
         if (!silent)
@@ -212,7 +219,7 @@ export default function KnowledgeBaseDocumentsPage() {
     catch (error) {
       // eslint-disable-next-line no-console
       console.error('上传失败', error)
-      alert('上传失败，请稍后重试')
+      showToast({ title: '上传失败', description: '请稍后重试', variant: 'error' })
       throw error
     }
     finally {
@@ -232,7 +239,7 @@ export default function KnowledgeBaseDocumentsPage() {
     action: 'enable' | 'disable' | 'archive' | 'un_archive',
   ) => {
     if (selectedIds.length === 0) {
-      alert('请先选择文档')
+      showToast({ title: '请先选择文档', variant: 'info' })
       return
     }
     await knowledgeBaseApi.patchDocumentsStatusBatch(kbId, action, selectedIds)
@@ -241,11 +248,10 @@ export default function KnowledgeBaseDocumentsPage() {
   }
 
   const handleDelete = async (documentId: string) => {
-    if (!confirm('确认删除这个文档吗？删除后无法恢复。'))
-      return
     await documentApi.delete(documentId)
     setSelectedIds(prev => prev.filter(id => id !== documentId))
     await loadDocuments(true)
+    showToast({ title: '删除成功', variant: 'success' })
   }
 
   const handleOpenRename = (doc: DocumentModel) => {
@@ -258,7 +264,7 @@ export default function KnowledgeBaseDocumentsPage() {
       return
     const nextName = renameValue.trim()
     if (!nextName) {
-      alert('文档名称不能为空')
+      showToast({ title: '文档名称不能为空', variant: 'info' })
       return
     }
     setRenameSubmitting(true)
@@ -270,7 +276,7 @@ export default function KnowledgeBaseDocumentsPage() {
     }
     catch (error: any) {
       const msg = error?.response?.data?.detail || '重命名失败'
-      alert(msg)
+      showToast({ title: '重命名失败', description: msg, variant: 'error' })
     }
     finally {
       setRenameSubmitting(false)
@@ -334,9 +340,7 @@ export default function KnowledgeBaseDocumentsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-gray-500">加载中...</div>
-      </div>
+      <LoadingState />
     )
   }
 
@@ -408,14 +412,7 @@ export default function KnowledgeBaseDocumentsPage() {
                 <button onClick={() => applyBatchAction('archive')} className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs hover:bg-gray-50">批量归档</button>
                 <button onClick={() => applyBatchAction('un_archive')} className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs hover:bg-gray-50">取消归档</button>
                 <button
-                  onClick={async () => {
-                    if (!confirm(`确认删除已选的 ${selectedIds.length} 个文档吗？`))
-                      return
-                    for (const id of selectedIds)
-                      await documentApi.delete(id)
-                    setSelectedIds([])
-                    await loadDocuments(true)
-                  }}
+                  onClick={() => setPendingBatchDelete(true)}
                   className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs text-rose-700 hover:bg-rose-50"
                 >
                   批量删除
@@ -425,10 +422,10 @@ export default function KnowledgeBaseDocumentsPage() {
 
             {filteredAndSortedDocuments.length === 0
               ? (
-                  <div className="rounded-xl border border-dashed border-gray-200 py-16 text-center">
-                    <FileText className="mx-auto mb-3 text-gray-300" size={36} />
-                    <p className="text-sm text-gray-500">暂无文档</p>
-                  </div>
+                <EmptyState
+                  title="暂无文档"
+                  description="上传或添加文档后，会显示在此列表中。"
+                />
                 )
               : (
                   <div className="overflow-hidden rounded-xl border border-gray-200">
@@ -588,9 +585,9 @@ export default function KnowledgeBaseDocumentsPage() {
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={async () => {
+                                          onClick={() => {
                                             setOpenMenuDocId(null)
-                                            await handleDelete(doc.id)
+                                            setPendingDeleteId(doc.id)
                                           }}
                                           className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
                                         >
@@ -653,6 +650,38 @@ export default function KnowledgeBaseDocumentsPage() {
         showProcessingModeToggle
         processingMode={processingMode}
         onProcessingModeChange={setProcessingMode}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="确认删除该文档？"
+        description="删除后无法恢复"
+        type="danger"
+        onClose={() => setPendingDeleteId(null)}
+        onConfirm={() => {
+          const id = pendingDeleteId
+          setPendingDeleteId(null)
+          if (id)
+            void handleDelete(id)
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingBatchDelete}
+        title="确认批量删除文档？"
+        description={selectedIds.length ? `将删除已选的 ${selectedIds.length} 个文档，删除后无法恢复` : '暂无选中文档'}
+        type="danger"
+        onClose={() => setPendingBatchDelete(false)}
+        onConfirm={async () => {
+          setPendingBatchDelete(false)
+          if (!selectedIds.length)
+            return
+          for (const id of selectedIds)
+            await documentApi.delete(id)
+          setSelectedIds([])
+          await loadDocuments(true)
+          showToast({ title: '批量删除成功', variant: 'success' })
+        }}
       />
     </div>
   )

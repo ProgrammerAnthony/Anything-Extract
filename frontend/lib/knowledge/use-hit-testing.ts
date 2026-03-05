@@ -5,7 +5,7 @@ import { knowledgeBaseApi } from '@/lib/api'
 import type { HitTestingQuery, HitTestingRecord } from './types'
 
 /** 按 query 与可选 retrieval_model/document_ids 召回，返回 records 与 hits */
-export async function useHitTesting(
+export async function runHitTesting(
   knowledgeBaseId: string,
   payload: {
     query: string
@@ -29,7 +29,7 @@ export async function useHitTesting(
 }
 
 /** 召回测试历史查询列表（分页） */
-export async function useHitTestingQueries(
+export async function fetchHitTestingQueries(
   knowledgeBaseId: string,
   params?: { page?: number; limit?: number },
 ) {

@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { documentApi, extractApi, tagApi } from '@/lib/api';
+import { useToast } from '@/components/ui/Toast';
+import LoadingState from '@/components/ui/LoadingState';
 import Link from 'next/link';
 
 interface Document {
@@ -78,6 +80,8 @@ export default function DocumentDetailPage() {
     strategy?: string;
   }>>({});
 
+  const { showToast } = useToast();
+
   const parserModeTextMap: Record<string, string> = {
     local: 'Local',
     server: 'Server',
@@ -125,7 +129,7 @@ export default function DocumentDetailPage() {
 
   const refreshTagEnhancements = async () => {
     if (selectedTagIds.length === 0) {
-      alert('请先选择至少一个标签');
+      showToast({ title: '请先选择至少一个标签', variant: 'info' });
       return;
     }
 
@@ -142,7 +146,7 @@ export default function DocumentDetailPage() {
       }
     } catch (error) {
       console.error('刷新RAG增强问题失败:', error);
-      alert('刷新RAG增强问题失败');
+      showToast({ title: '刷新RAG增强问题失败', variant: 'error' });
     } finally {
       setEnhancing(false);
     }
@@ -150,12 +154,12 @@ export default function DocumentDetailPage() {
 
   const handleExtract = async () => {
     if (selectedTagIds.length === 0) {
-      alert('请至少选择一个标签');
+      showToast({ title: '请至少选择一个标签', variant: 'info' });
       return;
     }
 
     if (!document || document.status !== 'completed') {
-      alert('文档尚未处理完成');
+      showToast({ title: '文档尚未处理完成', variant: 'info' });
       return;
     }
 
@@ -188,7 +192,11 @@ export default function DocumentDetailPage() {
       }
     } catch (error: any) {
       console.error('提取失败:', error);
-      alert(error.response?.data?.error?.message || '提取失败');
+      showToast({
+        title: '提取失败',
+        description: error.response?.data?.error?.message,
+        variant: 'error',
+      });
     } finally {
       setExtracting(false);
     }
@@ -216,7 +224,7 @@ export default function DocumentDetailPage() {
   }, [selectedTagIds]);
 
   if (loading) {
-    return <div className="p-8">加载中...</div>;
+    return <LoadingState fullHeight={false} />;
   }
 
   if (!document) {

@@ -2,10 +2,10 @@
 
 import { ReactNode, useState, useEffect, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronRight,PanelRightOpen,PanelRightClose } from 'lucide-react';
 import PrimarySider from './PrimarySider';
 import SecondarySider from './SecondarySider';
 import { PageProvider } from './PageContext';
+import { ToastProvider } from '@/components/ui/Toast';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -15,7 +15,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [activeMenu, setActiveMenu] = useState('knowledge-extract');
-  const [currentKbId, setCurrentKbId] = useState<string | null>(null);
   const [primaryCollapsed, setPrimaryCollapsed] = useState(false);
   const [secondaryCollapsed, setSecondaryCollapsed] = useState(false);
 
@@ -33,12 +32,6 @@ export default function MainLayout({ children }: MainLayoutProps) {
     // 根据路径确定激活的菜单
     if (pathname?.startsWith('/knowledge-bases')) {
       setActiveMenu('knowledge-base');
-      const kbMatch = pathname.match(/\/knowledge-bases\/([^\/]+)/);
-      if (kbMatch) {
-        setCurrentKbId(kbMatch[1]);
-      } else {
-        setCurrentKbId(null);
-      }
     } else if (pathname?.startsWith('/tags') || pathname?.startsWith('/extract') || pathname?.startsWith('/settings')) {
       setActiveMenu('knowledge-extract');
     } else if (pathname?.startsWith('/qa')) {
@@ -70,28 +63,29 @@ export default function MainLayout({ children }: MainLayoutProps) {
   };
 
   return (
-    <div className="min-h-screen flex bg-white">
-      <PrimarySider 
-        activeMenu={activeMenu} 
-        onMenuChange={handleMenuChange}
-        collapsed={primaryCollapsed}
-        onToggle={() => setPrimaryCollapsed(!primaryCollapsed)}
-      />
-      <SecondarySider 
-        activeMenu={activeMenu} 
-        currentKbId={currentKbId}
-        collapsed={secondaryCollapsed}
-        onToggle={handleToggleSecondary}
-      />
-      <main className="flex-1 overflow-y-auto bg-white relative">
-        <PageProvider 
-          secondaryCollapsed={secondaryCollapsed}
-          onOpenSidebar={handleOpenSidebar}
-        >
-          {children}
-        </PageProvider>
-      </main>
-    </div>
+    <ToastProvider>
+      <div className="min-h-screen flex bg-white">
+        <PrimarySider 
+          activeMenu={activeMenu} 
+          onMenuChange={handleMenuChange}
+          collapsed={primaryCollapsed}
+          onToggle={() => setPrimaryCollapsed(!primaryCollapsed)}
+        />
+        <SecondarySider 
+          activeMenu={activeMenu} 
+          collapsed={secondaryCollapsed}
+          onToggle={handleToggleSecondary}
+        />
+        <main className="flex-1 overflow-y-auto bg-white relative">
+          <PageProvider 
+            secondaryCollapsed={secondaryCollapsed}
+            onOpenSidebar={handleOpenSidebar}
+          >
+            {children}
+          </PageProvider>
+        </main>
+      </div>
+    </ToastProvider>
   );
 }
 

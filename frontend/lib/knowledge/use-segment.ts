@@ -6,7 +6,7 @@ import { knowledgeBaseApi } from '@/lib/api'
 import type { SegmentDetailModel } from './types'
 
 /** 文档分段列表，可选 enabled、keyword 筛选 */
-export async function useSegmentList(
+export async function fetchDocumentSegments(
   knowledgeBaseId: string,
   documentId: string,
   params?: { enabled?: boolean; keyword?: string },
@@ -16,7 +16,7 @@ export async function useSegmentList(
 }
 
 /** 更新分段（content/answer/keywords/enabled），后端会触发该分段重新建索引 */
-export async function useUpdateSegment(
+export async function updateSegment(
   knowledgeBaseId: string,
   documentId: string,
   segmentId: string,
@@ -32,7 +32,7 @@ export async function useUpdateSegment(
 }
 
 /** 新建分段 */
-export async function useCreateSegment(
+export async function createSegment(
   knowledgeBaseId: string,
   documentId: string,
   payload: {
@@ -48,7 +48,7 @@ export async function useCreateSegment(
 }
 
 /** 批量删除分段（同时删向量/关键词索引） */
-export async function useDeleteSegments(
+export async function deleteSegments(
   knowledgeBaseId: string,
   documentId: string,
   segmentIds: string[],

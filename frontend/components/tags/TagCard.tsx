@@ -16,10 +16,10 @@ interface Tag {
 
 interface TagCardProps {
   tag: Tag;
-  onDelete: (id: string) => void;
+  onRequestDelete: (tag: Tag) => void;
 }
 
-export default function TagCard({ tag, onDelete }: TagCardProps) {
+export default function TagCard({ tag, onRequestDelete }: TagCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -89,7 +89,7 @@ export default function TagCard({ tag, onDelete }: TagCardProps) {
               <button
                 onClick={() => {
                   setShowMenu(false);
-                  onDelete(tag.id);
+                  onRequestDelete(tag);
                 }}
                 className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
               >

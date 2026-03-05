@@ -1,10 +1,12 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { extractApi, tagApi, documentApi, knowledgeBaseApi } from '@/lib/api';
 import Link from 'next/link';
 import PageHeader from '@/components/layout/PageHeader';
 import { usePageContext } from '@/components/layout/PageContext';
+import { useToast } from '@/components/ui/Toast';
+import LoadingState from '@/components/ui/LoadingState';
 
 interface Tag {
   id: string;
@@ -49,6 +51,8 @@ export default function ExtractPage() {
   const [result, setResult] = useState<any>(null);
   const [extractionLogs, setExtractionLogs] = useState<string[]>([]);
   const [currentStage, setCurrentStage] = useState<string>('');
+
+  const { showToast } = useToast();
 
   useEffect(() => {
     loadTags();
@@ -116,7 +120,7 @@ export default function ExtractPage() {
 
   const refreshTagEnhancements = async () => {
     if (selectedTagIds.length === 0) {
-      alert('请先选择至少一个标签');
+      showToast({ title: '请先选择至少一个标签', variant: 'info' });
       return;
     }
 
@@ -133,7 +137,7 @@ export default function ExtractPage() {
       }
     } catch (error) {
       console.error('刷新RAG增强问题失败:', error);
-      alert('刷新RAG增强问题失败');
+      showToast({ title: '刷新RAG增强问题失败', variant: 'error' });
     } finally {
       setEnhancing(false);
     }
@@ -141,7 +145,7 @@ export default function ExtractPage() {
 
   const handleExtract = async () => {
     if (selectedTagIds.length === 0 || !selectedKbId || !selectedDocId) {
-      alert('请至少选择一个标签、知识库和文档');
+      showToast({ title: '请至少选择一个标签、知识库和文档', variant: 'info' });
       return;
     }
 
@@ -179,7 +183,11 @@ export default function ExtractPage() {
     } catch (error: any) {
       console.error('提取失败:', error);
       setExtractionLogs(prev => [...prev, `错误: ${error.message || '提取失败'}`]);
-      alert(error.message || '提取失败');
+      showToast({
+        title: '提取失败',
+        description: error.message,
+        variant: 'error',
+      });
     } finally {
       setExtracting(false);
       setCurrentStage('');
@@ -206,6 +214,10 @@ export default function ExtractPage() {
       return next;
     });
   }, [selectedTagIds]);
+
+  if (extracting && !result && extractionLogs.length === 0) {
+    return <LoadingState message="提取中..." fullHeight={false} />;
+  }
 
   return (
     <div className="h-full flex flex-col bg-[#f3f6fd]">

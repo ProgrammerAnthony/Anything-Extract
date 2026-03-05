@@ -26,6 +26,8 @@ import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
 import OptionCard from '@/components/knowledge/settings/OptionCard'
 import { knowledgeBaseApi } from '@/lib/api'
 import type { DocumentModel, KnowledgeBase, ProcessRuleModel, RetrievalConfig } from '@/lib/knowledge/types'
+import LoadingState from '@/components/ui/LoadingState'
+import { useToast } from '@/components/ui/Toast'
 
 type RetrievalMethod = RetrievalConfig['search_method']
 type ProcessMode = 'automatic' | 'custom' | 'hierarchical'
@@ -85,6 +87,7 @@ export default function DocumentSettingsPage() {
   const [useQaSegment, setUseQaSegment] = useState(false)
 
   const [previewData, setPreviewData] = useState<{ total_segments: number; preview: Array<{ content: string }> } | null>(null)
+  const { showToast } = useToast()
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null)
 
   const loadData = useCallback(async () => {
@@ -177,7 +180,11 @@ export default function DocumentSettingsPage() {
       if (res.data.success && res.data.data)
         setPreviewData(res.data.data as { total_segments: number; preview: Array<{ content: string }> })
     } catch (e: any) {
-      alert(e?.response?.data?.detail || '预览失败')
+      showToast({
+        title: '预览失败',
+        description: e?.response?.data?.detail,
+        variant: 'error',
+      })
     } finally {
       setPreviewLoading(false)
     }
@@ -199,21 +206,21 @@ export default function DocumentSettingsPage() {
           score_threshold: scoreThreshold,
         },
       })
-      alert('设置保存成功')
+      showToast({ title: '设置保存成功', variant: 'success' })
       await loadData()
     } catch (error: any) {
-      alert(error?.response?.data?.detail || '保存失败')
+      showToast({
+        title: '保存失败',
+        description: error?.response?.data?.detail,
+        variant: 'error',
+      })
     } finally {
       setSaving(false)
     }
   }
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-gray-500">加载中...</div>
-      </div>
-    )
+    return <LoadingState />
   }
 
   return (

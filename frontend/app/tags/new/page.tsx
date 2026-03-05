@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { tagApi } from '@/lib/api';
+import { useToast } from '@/components/ui/Toast';
 
 export default function NewTagPage() {
   const router = useRouter();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     name: '',
     type: 'single_choice' as 'single_choice' | 'multiple_choice' | 'text_input',
@@ -20,22 +22,27 @@ export default function NewTagPage() {
     e.preventDefault();
     
     if (!formData.name.trim()) {
-      alert('请输入标签名称');
+      showToast({ title: '请输入标签名称', variant: 'info' });
       return;
     }
 
     if ((formData.type === 'single_choice' || formData.type === 'multiple_choice') && formData.options.length === 0) {
-      alert('单选或多选类型需要至少一个选项');
+      showToast({ title: '单选或多选需要至少一个选项', variant: 'info' });
       return;
     }
 
     setSaving(true);
     try {
       await tagApi.create(formData);
+      showToast({ title: '创建成功', variant: 'success' });
       router.push('/tags');
     } catch (error: any) {
       console.error('创建标签失败:', error);
-      alert(error.response?.data?.error?.message || '创建失败');
+      showToast({
+        title: '创建失败',
+        description: error.response?.data?.error?.message,
+        variant: 'error',
+      });
     } finally {
       setSaving(false);
     }

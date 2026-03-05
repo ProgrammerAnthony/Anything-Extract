@@ -30,6 +30,8 @@ import { usePageContext } from '@/components/layout/PageContext'
 import KnowledgeDetailTabs from '@/components/knowledge/KnowledgeDetailTabs'
 import { knowledgeBaseApi } from '@/lib/api'
 import type { DocumentModel, SegmentDetailModel } from '@/lib/knowledge/types'
+import { useToast } from '@/components/ui/Toast'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 const EMBEDDING_VIEW_STATUSES = new Set(['queuing', 'indexing', 'parsing', 'cleaning', 'splitting', 'paused'])
 function isEmbeddingView(displayStatus?: string | null): boolean {
@@ -90,6 +92,9 @@ export default function DocumentSegmentsPage() {
   const [addKeywords, setAddKeywords] = useState('')
   const [addEnabled, setAddEnabled] = useState(true)
   const [addAnother, setAddAnother] = useState(true)
+  const [pendingDeleteSegments, setPendingDeleteSegments] = useState<string[] | null>(null)
+
+  const { showToast } = useToast()
 
   const loadDocumentOnly = useCallback(async () => {
     try {
@@ -163,7 +168,7 @@ export default function DocumentSegmentsPage() {
     if (!editingSegment)
       return
     if (!editContent.trim()) {
-      alert('分段内容不能为空')
+      showToast({ title: '分段内容不能为空', variant: 'info' })
       return
     }
 
@@ -179,7 +184,11 @@ export default function DocumentSegmentsPage() {
       await loadData()
     }
     catch (error: any) {
-      alert(error?.response?.data?.detail || '分段保存失败')
+      showToast({
+        title: '分段保存失败',
+        description: error?.response?.data?.detail,
+        variant: 'error',
+      })
     }
     finally {
       setSubmitting(false)
@@ -190,7 +199,7 @@ export default function DocumentSegmentsPage() {
     if (!editingSegment)
       return
     if (!editContent.trim()) {
-      alert('分段内容不能为空')
+      showToast({ title: '分段内容不能为空', variant: 'info' })
       return
     }
 
@@ -204,10 +213,14 @@ export default function DocumentSegmentsPage() {
         enabled: editEnabled,
       })
       await loadData()
-      alert('分段重建索引已完成')
+      showToast({ title: '分段重建索引已完成', variant: 'success' })
     }
     catch (error: any) {
-      alert(error?.response?.data?.detail || '分段重建索引失败')
+      showToast({
+        title: '分段重建索引失败',
+        description: error?.response?.data?.detail,
+        variant: 'error',
+      })
     }
     finally {
       setSubmitting(false)
@@ -217,28 +230,12 @@ export default function DocumentSegmentsPage() {
   const handleDeleteSegments = async (segmentIds: string[]) => {
     if (!segmentIds.length)
       return
-    if (!confirm(`确认删除 ${segmentIds.length} 个分段吗？`))
-      return
-
-    setSubmitting(true)
-    try {
-      await knowledgeBaseApi.deleteSegments(kbId, docId, segmentIds)
-      if (editingSegment && segmentIds.includes(editingSegment.id))
-        closeEditDrawer()
-      setSelectedSegmentIds(prev => prev.filter(id => !segmentIds.includes(id)))
-      await loadData()
-    }
-    catch (error: any) {
-      alert(error?.response?.data?.detail || '分段删除失败')
-    }
-    finally {
-      setSubmitting(false)
-    }
+    setPendingDeleteSegments(segmentIds)
   }
 
   const handleCreateSegment = async () => {
     if (!addContent.trim()) {
-      alert('分段内容不能为空')
+      showToast({ title: '分段内容不能为空', variant: 'info' })
       return
     }
 
@@ -263,7 +260,11 @@ export default function DocumentSegmentsPage() {
       }
     }
     catch (error: any) {
-      alert(error?.response?.data?.detail || '新增分段失败')
+      showToast({
+        title: '新增分段失败',
+        description: error?.response?.data?.detail,
+        variant: 'error',
+      })
     }
     finally {
       setSubmitting(false)

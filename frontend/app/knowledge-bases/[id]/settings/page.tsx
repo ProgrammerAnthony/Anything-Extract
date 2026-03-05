@@ -12,6 +12,7 @@ import OptionCard from '@/components/knowledge/settings/OptionCard'
 import SettingsRetrievalBlock from '@/components/knowledge/settings/SettingsRetrievalBlock'
 import { knowledgeBaseApi } from '@/lib/api'
 import type { KnowledgeBase, RetrievalConfig } from '@/lib/knowledge/types'
+import { useToast } from '@/components/ui/Toast'
 
 const rowClass = 'flex gap-x-1'
 const labelClass = 'flex items-center shrink-0 w-[180px] h-7 pt-1'
@@ -47,6 +48,7 @@ export default function KnowledgeBaseSettingsPage() {
   const params = useParams()
   const kbId = params.id as string
   const { secondaryCollapsed, onOpenSidebar } = usePageContext()
+  const { showToast } = useToast()
 
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase | null>(null)
   const [loading, setLoading] = useState(false)
@@ -104,10 +106,10 @@ export default function KnowledgeBaseSettingsPage() {
           weights: retrievalConfig.weights,
         },
       })
-      alert('设置保存成功')
+      showToast({ title: '设置保存成功', variant: 'success' })
     } catch (error) {
       console.error(error)
-      alert('保存失败，请稍后重试')
+      showToast({ title: '保存失败', description: '请稍后重试', variant: 'error' })
     } finally {
       setLoading(false)
     }

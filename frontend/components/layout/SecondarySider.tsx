@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, type MouseEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, type MouseEvent } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Tag, Search, FolderOpen, Edit2, Trash2, Check, X, ChevronLeft,PanelRightOpen, ChevronRight, ChevronLeftIcon, Settings } from 'lucide-react';
-import { knowledgeBaseApi } from '@/lib/api';
+import EmptyState from '@/components/ui/EmptyState'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import { type KnowledgeBaseSidebarItem, useKnowledgeBaseSidebar } from './useKnowledgeBaseSidebar'
 
 // 可复用的二级侧边栏顶部组件
 interface SecondarySiderHeaderProps {
@@ -30,91 +32,44 @@ function SecondarySiderHeader({ title, collapsed, onToggle }: SecondarySiderHead
   );
 }
 
-interface KnowledgeBase {
-  id: string;
-  name: string;
-  is_default: boolean;
-}
-
 interface SecondarySiderProps {
   activeMenu: string;
-  currentKbId?: string | null;
   collapsed: boolean;
   onToggle: () => void;
 }
 
-export default function SecondarySider({ activeMenu, currentKbId, collapsed, onToggle }: SecondarySiderProps) {
+export default function SecondarySider({ activeMenu, collapsed, onToggle }: SecondarySiderProps) {
   const router = useRouter();
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
-  const [inputKeyword, setInputKeyword] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
+  const pathname = usePathname();
+  const currentKbId = pathname?.startsWith('/knowledge-bases')
+    ? (pathname.match(/\/knowledge-bases\/([^\/]+)/)?.[1] ?? null)
+    : null;
   const [hoveredKbId, setHoveredKbId] = useState<string | null>(null);
   const [hoverMenuPosition, setHoverMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  const hoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const {
+    knowledgeBases,
+    inputKeyword,
+    setInputKeyword,
 
-  useEffect(() => {
-    if (activeMenu !== 'knowledge-base') {
-      return;
-    }
+    editingId,
+    editingName,
+    setEditingName,
+    startRename,
+    cancelRename,
+    saveRename,
 
-    const timer = setTimeout(() => {
-      const keyword = inputKeyword.trim();
-      loadKnowledgeBases(keyword || undefined);
-    }, 250);
+    showDeleteConfirm,
+    setShowDeleteConfirm,
+    deleteKnowledgeBase,
 
-    return () => clearTimeout(timer);
-  }, [activeMenu, inputKeyword]);
+    handleSearch,
+    handleCreate,
 
-  const loadKnowledgeBases = async (search?: string) => {
-    try {
-      const response = await knowledgeBaseApi.getAll(search ? { search } : undefined);
-      if (response.data.success) {
-        setKnowledgeBases(response.data.data.knowledge_bases);
-      }
-    } catch (error) {
-      console.error('加载知识库失败:', error);
-    }
-  };
+    hoverCloseTimerRef,
+  } = useKnowledgeBaseSidebar(activeMenu, currentKbId)
 
-  const handleSearch = async () => {
-    const keyword = inputKeyword.trim();
-    await loadKnowledgeBases(keyword || undefined);
-  };
-
-  const handleCreate = async () => {
-    const name = inputKeyword.trim();
-    if (!name) {
-      alert('请输入知识库名称');
-      return;
-    }
-
-    const exactMatch = knowledgeBases.find(
-      (kb) => kb.name.trim().toLowerCase() === name.toLowerCase()
-    );
-    if (exactMatch) {
-      router.push(`/knowledge-bases/${exactMatch.id}/documents`);
-      return;
-    }
-
-    try {
-      await knowledgeBaseApi.create({ name });
-      setInputKeyword('');
-      loadKnowledgeBases();
-    } catch (error: any) {
-      console.error('创建知识库失败:', error);
-      alert(error.response?.data?.detail || '创建失败');
-    }
-  };
-
-  const handleRename = (kb: KnowledgeBase) => {
-    if (hoverCloseTimerRef.current) {
-      clearTimeout(hoverCloseTimerRef.current);
-      hoverCloseTimerRef.current = null;
-    }
-    setEditingId(kb.id);
-    setEditingName(kb.name);
+  const handleRename = (kb: KnowledgeBaseSidebarItem) => {
+    startRename(kb)
     setHoveredKbId(null);
     setHoverMenuPosition(null);
   };
@@ -145,57 +100,6 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
       handleHoverMenuClose();
       hoverCloseTimerRef.current = null;
     }, 120);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (hoverCloseTimerRef.current) {
-        clearTimeout(hoverCloseTimerRef.current);
-      }
-    };
-  }, []);
-
-  const handleSaveRename = async (id: string) => {
-    if (!editingName.trim()) {
-      alert('知识库名称不能为空');
-      return;
-    }
-
-    try {
-      await knowledgeBaseApi.update(id, { name: editingName.trim() });
-      setEditingId(null);
-      setEditingName('');
-      loadKnowledgeBases(inputKeyword.trim() || undefined);
-    } catch (error: any) {
-      console.error('重命名失败:', error);
-      alert(error.response?.data?.detail || '重命名失败');
-      setEditingName('');
-    }
-  };
-
-  const handleCancelRename = () => {
-    setEditingId(null);
-    setEditingName('');
-  };
-
-  const handleDelete = async (id: string) => {
-    try {
-      await knowledgeBaseApi.delete(id);
-      setShowDeleteConfirm(null);
-      if (hoverCloseTimerRef.current) {
-        clearTimeout(hoverCloseTimerRef.current);
-        hoverCloseTimerRef.current = null;
-      }
-      setHoverMenuPosition(null);
-      loadKnowledgeBases(inputKeyword.trim() || undefined);
-      if (currentKbId === id) {
-        router.push('/knowledge-bases');
-      }
-    } catch (error: any) {
-      console.error('删除知识库失败:', error);
-      alert(error.response?.data?.detail || '删除失败');
-      setShowDeleteConfirm(null);
-    }
   };
 
   if (activeMenu === 'knowledge-extract') {
@@ -320,8 +224,8 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSaveRename(kb.id);
-                            if (e.key === 'Escape') handleCancelRename();
+                            if (e.key === 'Enter') saveRename(kb.id);
+                            if (e.key === 'Escape') cancelRename();
                           }}
                           className="flex-1 px-2 py-1 text-sm text-gray-800 bg-white border border-[#7261e9] rounded outline-none"
                           autoFocus
@@ -330,7 +234,7 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleSaveRename(kb.id);
+                            saveRename(kb.id);
                           }}
                           className="ml-2 p-1 text-green-600 hover:text-green-700"
                         >
@@ -339,7 +243,7 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleCancelRename();
+                            cancelRename();
                           }}
                           className="ml-1 p-1 text-red-600 hover:text-red-700"
                         >
@@ -404,44 +308,25 @@ export default function SecondarySider({ activeMenu, currentKbId, collapsed, onT
                 </div>
               ))
               ) : (
-                <div className="text-center py-8 text-gray-500 text-sm">
-                  暂无知识库
+                <div className="py-4">
+                  <EmptyState
+                    title="暂无知识库"
+                    description="在上方输入名称后回车即可新建，或点击新建按钮。"
+                  />
                 </div>
               )}
             </div>
           )}
         </div>
 
-        {/* 删除确认对话框 */}
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="bg-white rounded-lg shadow-xl p-6 max-w-md mx-4">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
-                  <span className="text-orange-500 text-xl">!</span>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800">确认删除该知识库？</h3>
-                  <p className="text-sm text-gray-500 mt-1">删除后无法恢复</p>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => setShowDeleteConfirm(null)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() => handleDelete(showDeleteConfirm)}
-                  className="px-4 py-2 bg-[#5147e5] text-white rounded hover:bg-[#4338ca] transition-colors"
-                >
-                  确定
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <ConfirmDialog
+          open={!!showDeleteConfirm}
+          title="确认删除该知识库？"
+          description="删除后无法恢复"
+          type="danger"
+          onClose={() => setShowDeleteConfirm(null)}
+          onConfirm={() => deleteKnowledgeBase(showDeleteConfirm!)}
+        />
       </>
     );
   }

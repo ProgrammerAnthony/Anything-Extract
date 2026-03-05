@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import PageHeader from '@/components/layout/PageHeader'
 import { usePageContext } from '@/components/layout/PageContext'
 import { knowledgeBaseApi } from '@/lib/api'
+import { useToast } from '@/components/ui/Toast'
 
 type Step = 1 | 2 | 3
 
@@ -33,6 +34,7 @@ export default function KnowledgeBaseCreateWizardPage() {
   const [createdKbId, setCreatedKbId] = useState<string | null>(null)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [batchStatus, setBatchStatus] = useState<any[]>([])
+  const { showToast } = useToast()
 
   const filePaths = useMemo(
     () => filePathsText.split('\n').map(line => line.trim()).filter(Boolean),
@@ -54,7 +56,7 @@ export default function KnowledgeBaseCreateWizardPage() {
 
   const submit = async () => {
     if (!name.trim()) {
-      alert('请输入知识库名称')
+      showToast({ title: '请输入知识库名称', variant: 'info' })
       return
     }
 
@@ -103,7 +105,11 @@ export default function KnowledgeBaseCreateWizardPage() {
     catch (error: any) {
       // eslint-disable-next-line no-console
       console.error(error)
-      alert(error?.response?.data?.detail || '创建失败')
+      showToast({
+        title: '创建失败',
+        description: error?.response?.data?.detail,
+        variant: 'error',
+      })
     }
     finally {
       setSaving(false)
