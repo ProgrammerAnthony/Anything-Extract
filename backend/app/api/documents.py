@@ -1,4 +1,4 @@
-﻿"""文档管理 API。"""
+"""文档管理 API。"""
 from __future__ import annotations
 
 import asyncio
@@ -29,11 +29,13 @@ from core.database import (
 from core.rag.datasource.keyword.jieba import JiebaKeywordService
 from providers.vector_db.lancedb import LanceDBProvider
 from services.document_ingest_service import DocumentIngestService
+from services.document_service import DocumentService, DocumentNotFoundError, DocumentDeletionError
 from services.ingest_queue_service import IngestQueueService
 from utils.logging import debug_logger, document_logger
 
 router = APIRouter()
 ingest_queue_service = IngestQueueService()
+document_service = DocumentService()
 
 SUPPORTED_UPLOAD_EXTENSIONS = {
     "pdf",
@@ -383,47 +385,12 @@ async def retry_document_ingest(document_id: str, db: Session = Depends(get_db))
 
 @router.delete("/{document_id}", response_model=ApiResponse)
 async def delete_document(document_id: str, db: Session = Depends(get_db)):
-    document = db.query(Document).filter(Document.id == document_id).first()
-    if not document:
-        raise HTTPException(status_code=404, detail="文档不存在")
-
     try:
-        try:
-            vector_db = LanceDBProvider(settings.lance_db_path)
-            await vector_db.delete_by_document_id(document_id)
-        except Exception as exc:  # noqa: BLE001
-            document_logger.warning("删除向量失败: %s", exc)
-            debug_logger.warning("删除向量失败: %s\n%s", exc, traceback.format_exc())
-
-        try:
-            kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == document.knowledge_base_id).first()
-            if kb:
-                node_ids = [
-                    item.index_node_id
-                    for item in db.query(DocumentSegment).filter(DocumentSegment.document_id == document_id).all()
-                    if item.index_node_id
-                ]
-                if node_ids:
-                    JiebaKeywordService(db=db, knowledge_base=kb).delete_by_ids(node_ids)
-        except Exception as exc:  # noqa: BLE001
-            document_logger.warning("清理关键词倒排失败: %s", exc)
-
-        db.query(DocumentVector).filter(DocumentVector.document_id == document_id).delete()
-        db.query(ExtractionResult).filter(ExtractionResult.document_id == document_id).delete()
-
-        if os.path.exists(document.file_path):
-            os.remove(document.file_path)
-        if document.json_path and os.path.exists(document.json_path):
-            os.remove(document.json_path)
-
-        db.delete(document)
-        db.commit()
-
-        return ApiResponse(success=True, message="文档及关联数据已删除")
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        error_msg = f"删除文档失败: {exc}\n{traceback.format_exc()}"
-        document_logger.error(error_msg)
-        debug_logger.error(error_msg)
+        await document_service.delete_document_and_artifacts(db=db, document_id=document_id)
+    except DocumentNotFoundError:
+        raise HTTPException(status_code=404, detail="文档不存在") from None
+    except DocumentDeletionError as exc:
         raise HTTPException(status_code=500, detail=f"删除文档失败: {exc}") from exc
+
+    return ApiResponse(success=True, message="文档及关联数据已删除")
 

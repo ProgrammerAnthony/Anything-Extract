@@ -39,11 +39,19 @@ from providers.vector_db.lancedb import LanceDBProvider
 from core.indexing_runner import IndexingRunner
 from services.hit_testing_service import HitTestingService
 from services.ingest_queue_service import IngestQueueService
+from services.knowledge_base_service import (
+    KnowledgeBaseService,
+    KnowledgeBaseNotFoundError,
+    CannotDeleteLastKnowledgeBaseError,
+    KnowledgeBaseHasDocumentsError,
+    DocumentNotFoundError,
+)
 
 router = APIRouter()
 indexing_runner = IndexingRunner()  # 文档索引主流程：抽取 -> 清洗分段 -> 落库分段 -> 写向量/关键词
 ingest_queue_service = IngestQueueService()  # 文档入队与任务状态
 hit_testing_service = HitTestingService()  # 召回测试：按检索配置查询并返回命中分段
+kb_service = KnowledgeBaseService(ingest_queue_service=ingest_queue_service)
 
 
 # ---------- 请求/响应模型 ----------
@@ -606,20 +614,19 @@ async def update_knowledge_base(kb_id: str, kb_data: KnowledgeBaseUpdate, db: Se
 
 @router.delete("/{kb_id}", response_model=ApiResponse)
 async def delete_knowledge_base(kb_id: str, db: Session = Depends(get_db)):
-    """删除知识库；若为最后一个知识库则禁止删除。"""
-    kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
-    if not kb:
-        raise HTTPException(status_code=404, detail="知识库不存在")
+    """删除知识库；若为最后一个知识库则禁止删除。
 
-    if db.query(KnowledgeBase).count() == 1:
-        raise HTTPException(status_code=400, detail="不能删除最后一个知识库")
+    具体业务校验委托给 KnowledgeBaseService，router 仅负责异常到 HTTP 的映射。
+    """
+    try:
+        kb_service.delete_knowledge_base(db=db, kb_id=kb_id)
+    except KnowledgeBaseNotFoundError:
+        raise HTTPException(status_code=404, detail="知识库不存在") from None
+    except CannotDeleteLastKnowledgeBaseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except KnowledgeBaseHasDocumentsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
-    doc_count = db.query(Document).filter(Document.knowledge_base_id == kb_id).count()
-    if doc_count > 0:
-        raise HTTPException(status_code=400, detail=f"知识库中还有 {doc_count} 个文档，请先删除文档")
-
-    db.delete(kb)
-    db.commit()
     return ApiResponse(success=True, message="知识库已删除")
 
 
@@ -694,7 +701,10 @@ async def get_knowledge_base_documents(
 
 @router.post("/{kb_id}/documents", response_model=ApiResponse)
 async def create_knowledge_base_document(kb_id: str, payload: DocumentCreateRequest, db: Session = Depends(get_db)):
-    """按本地 file_path 创建文档记录并加入 ingest 队列；可选 batch 同批多文档。"""
+    """按本地 file_path 创建文档记录并加入 ingest 队列；可选 batch 同批多文档。
+
+    具体的文档创建与入队逻辑委托给 KnowledgeBaseService，router 仅做参数校验与 HTTP 映射。
+    """
     kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
@@ -702,45 +712,21 @@ async def create_knowledge_base_document(kb_id: str, payload: DocumentCreateRequ
     if not Path(payload.file_path).exists():
         raise HTTPException(status_code=400, detail=f"文件不存在: {payload.file_path}")
 
-    process_rule = _ensure_kb_process_rule(db=db, kb_id=kb.id, process_rule=payload.process_rule)
-
-    if payload.retrieval_model is not None:
-        kb.retrieval_model = json.dumps(payload.retrieval_model.model_dump(mode="json"), ensure_ascii=False)
-
-    batch_id = payload.batch or uuid.uuid4().hex
-    position = (
-        db.query(Document)
-        .filter(Document.knowledge_base_id == kb.id, Document.batch == batch_id)
-        .count()
-        + 1
-    )
-
-    document = Document(
-        knowledge_base_id=kb.id,
-        filename=payload.name or Path(payload.file_path).name,
-        file_type=payload.file_type,
-        file_path=payload.file_path,
-        json_path="",
-        status="queued",
-        indexing_status="waiting",
-        doc_form=payload.doc_form or kb.doc_form,
-        doc_language=payload.doc_language,
-        data_source_type="upload_file",
-        data_source_info=json.dumps({"file_path": payload.file_path}, ensure_ascii=False),
-        process_rule_id=process_rule.id,
-        batch=batch_id,
-        position=position,
-        created_from="upload_file",
-        enabled=True,
-        archived=False,
-    )
-    db.add(document)
-    db.flush()
-
-    job = ingest_queue_service.enqueue_document(db, document.id, processing_mode=settings.ingest_default_mode)
-    db.commit()
-    db.refresh(document)
-    db.refresh(job)
+    try:
+        document, job, batch_id = kb_service.create_document_for_knowledge_base(
+            db=db,
+            kb=kb,
+            file_path=payload.file_path,
+            file_type=payload.file_type,
+            name=payload.name,
+            process_rule=payload.process_rule,
+            retrieval_model=payload.retrieval_model,
+            doc_form=payload.doc_form,
+            doc_language=payload.doc_language,
+            batch=payload.batch,
+        )
+    except TypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return ApiResponse(
         success=True,
@@ -755,45 +741,10 @@ async def create_knowledge_base_document(kb_id: str, payload: DocumentCreateRequ
 @router.get("/{kb_id}/documents/{doc_id}", response_model=ApiResponse)
 async def get_knowledge_base_document(kb_id: str, doc_id: str, db: Session = Depends(get_db)):
     """文档详情：含 document_process_rule、dataset_process_rule、technical_parameters、segment_count、hit_count。"""
-    doc = (
-        db.query(Document)
-        .filter(Document.id == doc_id, Document.knowledge_base_id == kb_id)
-        .first()
-    )
-    if not doc:
-        raise HTTPException(status_code=404, detail="文档不存在")
-
-    job = db.query(DocumentIngestJob).filter(DocumentIngestJob.document_id == doc.id).first()
-    segment_count = db.query(DocumentSegment).filter(DocumentSegment.document_id == doc.id).count()
-    hit_count = (
-        db.query(DocumentSegment)
-        .with_entities(DocumentSegment.hit_count)
-        .filter(DocumentSegment.document_id == doc.id)
-        .all()
-    )
-    kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
-    document_rule = None
-    if doc.process_rule_id:
-        document_rule = (
-            db.query(KnowledgeBaseProcessRule)
-            .filter(KnowledgeBaseProcessRule.id == doc.process_rule_id)
-            .first()
-        )
-    dataset_rule = _get_dataset_process_rule(db=db, kb_id=kb_id)
-
-    payload = _serialize_document(doc, job)
-    payload["segment_count"] = segment_count
-    payload["hit_count"] = sum(item[0] or 0 for item in hit_count)
-    payload["document_process_rule"] = _serialize_process_rule(document_rule)
-    payload["dataset_process_rule"] = _serialize_process_rule(dataset_rule)
-    payload["knowledge_base"] = _serialize_kb(kb) if kb else None
-    payload["technical_parameters"] = {
-        "indexing_technique": kb.indexing_technique if kb else None,
-        "embedding_model": kb.embedding_model if kb else None,
-        "embedding_model_provider": kb.embedding_model_provider if kb else None,
-        "retrieval_model": kb.retrieval_model_dict if kb else None,
-        "keyword_number": kb.keyword_number if kb else None,
-    }
+    try:
+        payload = kb_service.get_document_detail(db=db, kb_id=kb_id, doc_id=doc_id)
+    except DocumentNotFoundError:
+        raise HTTPException(status_code=404, detail="文档不存在") from None
 
     return ApiResponse(success=True, data={"document": payload})
 

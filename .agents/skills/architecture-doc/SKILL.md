@@ -16,8 +16,7 @@ description: 指导在项目中编写、更新与使用架构文档（ARCHITECTU
 
 ## 架构文档的位置与命名
 
-- **路径**：项目根目录下的 `ARCHITECTURE.md`
-- **示例**：在 anything-extract 项目中即 `anything-extract/ARCHITECTURE.md`
+- **路径**：项目根目录下的 `ARCHITECTURE.md`（以当前工作区/仓库根为准）
 - 若项目根目录不存在该文件，在开始架构相关工作时应**先创建**该文件，再按本 skill 的规范编写内容。
 
 ## 核心原则
@@ -90,5 +89,5 @@ description: 指导在项目中编写、更新与使用架构文档（ARCHITECTU
 
 ## 延伸阅读
 
-- 本项目的架构文档示例：项目根目录 [ARCHITECTURE.md](../../../ARCHITECTURE.md)
-- 更细的写作约定与反例见 [references/conventions.md](references/conventions.md)（若存在）
+- 架构文档位于**项目根目录**，文件名为 `ARCHITECTURE.md`（具体路径以当前工作区为准）。
+- 更细的写作约定与反例见 [references/conventions.md](references/conventions.md)（若存在）。

@@ -245,7 +245,7 @@ flowchart LR
 
 ### 5.3 文档管理 API
 
-**通用文档接口**：
+**通用文档接口**（按全局 `document_id` 访问，当前假定单租户/单用户场景，不强制携带 `knowledge_base_id`）：
 - `POST /api/documents/upload`
   - 支持 `processing_mode=queue|immediate` 与 `batch` 参数
 - `GET /api/documents`
@@ -253,6 +253,7 @@ flowchart LR
 - `GET /api/documents/{document_id}/status`
 - `POST /api/documents/{document_id}/retry`
 - `DELETE /api/documents/{document_id}`
+  - 说明：删除文档记录、原始文件、JSON 文件和向量数据；若未来引入多知识库/多租户隔离，可在 service 层增加文档归属或权限校验。
 
 **知识库文档详情接口**：
 - `GET /api/knowledge-bases/{id}/documents/{docId}` — 文档详情
