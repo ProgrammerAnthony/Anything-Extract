@@ -616,30 +616,43 @@ check_ollama_models
 
 start_qanything_models_docker() {
     local container_name="qanything_stage3_models"
-    local image_name="xixihahaliu01/qanything-linux:v1.5.1"
+    # 根据宿主机系统选择对应镜像
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        local image_name="xixihahaliu01/qanything-mac:v1.5.1"
+    else
+        local image_name="xixihahaliu01/qanything-linux:v1.5.1"
+    fi
+    # 获取项目根目录的绝对路径（run.sh 位于项目根目录）
+    local project_root
+    project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local dep_server_dir="${project_root}/dependent_server"
+    local entrypoint="${project_root}/docker/qanything-models-entrypoint.sh"
 
     if ! command -v docker &> /dev/null; then
-        echo "⚠️  未检测到 docker，无法自动启动 QAnything 模型容器"
+        echo "⚠️  未检测到 docker，无法自动启动 OCR/PDF 模型容器"
         return 1
     fi
 
     if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-        echo "✅ QAnything 模型容器已运行: ${container_name}"
+        echo "✅ OCR/PDF 模型容器已运行: ${container_name}"
         return 0
     fi
 
     if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
-        echo "启动已存在的 QAnything 模型容器: ${container_name}"
+        echo "启动已存在的 OCR/PDF 模型容器: ${container_name}"
         docker start "${container_name}" >/dev/null || return 1
         return 0
     fi
 
-    echo "首次拉起 QAnything 模型容器（可能需要下载镜像，时间较长）..."
+    echo "首次拉起 OCR/PDF 模型容器（可能需要下载镜像，时间较长）..."
     docker run -d \
         --name "${container_name}" \
         -p 7001:7001 \
         -p 9009:9009 \
-        "${image_name}" >/dev/null
+        -v "${dep_server_dir}:/workspace/dependent_server" \
+        -v "${entrypoint}:/qanything-models-entrypoint.sh:ro" \
+        "${image_name}" \
+        /bin/bash /qanything-models-entrypoint.sh >/dev/null
 }
 
 echo ""
@@ -685,8 +698,9 @@ BACKEND_PID=$!
 OCR_PID=""
 PDF_PID=""
 if [ "$WITH_QANYTHING_MODELS_DOCKER" -eq 0 ]; then
-    OCR_SERVER_SCRIPT="../QAnything/qanything_kernel/dependent_server/ocr_server/ocr_server.py"
-    PDF_SERVER_SCRIPT="../QAnything/qanything_kernel/dependent_server/pdf_parser_server/pdf_parser_server.py"
+    # dependent_server 已内置于项目，不再依赖外部 QAnything 目录
+    OCR_SERVER_SCRIPT="../dependent_server/ocr_server/ocr_server.py"
+    PDF_SERVER_SCRIPT="../dependent_server/pdf_parser_server/pdf_parser_server.py"
 
     if [ "$WITH_OCR_SERVER" -eq 1 ]; then
         if [ -f "$OCR_SERVER_SCRIPT" ]; then

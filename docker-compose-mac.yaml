@@ -1,0 +1,83 @@
+services:
+  backend:
+    container_name: anything-extract-backend
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    image: anything-extract-backend:latest
+    ports:
+      - "8888:8888"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - LANCE_DB_PATH=./storage/lancedb
+      - DATABASE_URL=sqlite:///./storage/database.db
+      - STORAGE_PATH=./storage
+      - API_HOST=0.0.0.0
+      - API_PORT=8888
+      - FRONTEND_URL=http://localhost:3001
+      - INGEST_DEFAULT_MODE=${INGEST_DEFAULT_MODE:-queue}
+      # QAnything OCR/PDF 服务（启用 --profile models 时生效）
+      - ENABLE_OCR_SERVER=${ENABLE_OCR_SERVER:-false}
+      - ENABLE_PDF_PARSER_SERVER=${ENABLE_PDF_PARSER_SERVER:-false}
+      - OCR_SERVER_URL=http://qanything_models:7001
+      - PDF_PARSER_SERVER_URL=http://qanything_models:9009
+      - PARSER_MODE=${PARSER_MODE:-local}
+    volumes:
+      - ./storage:/app/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    container_name: anything-extract-frontend
+    build:
+      context: ./frontend
+      dockerfile: ../docker/Dockerfile.frontend
+      args:
+        # 前端容器内通过 Docker 网络访问后端
+        BACKEND_URL: http://backend:8888
+    image: anything-extract-frontend:latest
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ---- 可选：QAnything OCR + PDF 模型服务 ----
+  # 启用方式：docker compose -f docker-compose-mac.yaml --profile models up
+  # 镜像提供 ML 模型（/root/models），本地 dependent_server/ 提供服务代码
+  qanything_models:
+    profiles: ["models", "full"]
+    container_name: anything-extract-qanything-models
+    image: xixihahaliu01/qanything-mac:v1.5.1
+    command: /bin/bash /qanything-models-entrypoint.sh
+    volumes:
+      - ./dependent_server/:/workspace/dependent_server/
+      - ./docker/qanything-models-entrypoint.sh:/qanything-models-entrypoint.sh:ro
+    ports:
+      - "7001:7001"
+      - "9009:9009"
+    environment:
+      - GATEWAY_IP=host.docker.internal
+    restart: unless-stopped
+
+  # ---- 可选：Ollama 容器（完全容器化 LLM/Embedding）----
+  # 启用方式：docker compose -f docker-compose-mac.yaml --profile ollama up
+  ollama:
+    profiles: ["ollama", "full"]
+    container_name: anything-extract-ollama
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

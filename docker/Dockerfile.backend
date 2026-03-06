@@ -1,0 +1,29 @@
+FROM python:3.10-slim
+
+# 系统依赖（unstructured 等库需要）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+    poppler-utils \
+    tesseract-ocr \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 先复制依赖文件，利用 Docker 层缓存
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# 复制后端代码
+COPY . .
+
+# 创建存储目录和日志目录
+RUN mkdir -p storage/documents storage/vector-cache storage/lancedb storage/uploads logs
+
+EXPOSE 8888
+
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]

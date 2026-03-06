@@ -23,15 +23,54 @@
 
 ## 快速开始
 
-### 前置要求
+### 方式一：Docker 部署（推荐）
+
+前置要求：[Docker Desktop](https://www.docker.com/products/docker-desktop) >= 4.26 (Windows/Mac) 或 Docker + Docker Compose v2 (Linux)
+
+```bash
+# 仅启动后端 + 前端（Ollama 运行在宿主机）
+./docker_run.sh
+
+# 启动后端 + 前端 + QAnything OCR/PDF 模型服务
+./docker_run.sh --with-models
+
+# 完全容器化（含 Ollama 容器）
+./docker_run.sh --with-ollama
+
+# 启用全部服务
+./docker_run.sh --full
+
+# 后台运行
+./docker_run.sh -d
+
+# 停止服务
+./docker_run.sh --down
+```
+
+首次启动时会自动构建镜像。访问地址：
+- 前端：http://localhost:3001
+- 后端 API：http://localhost:8888
+
+> **Windows 用户**：需在 WSL2 或 Git Bash 中运行 `docker_run.sh`，或直接使用：
+> ```bash
+> docker compose -f docker-compose-win.yaml up
+> ```
+
+详细 Docker 配置说明见本文档底部 [Docker 部署](#docker-部署) 章节。
+
+---
+
+### 方式二：本地直接运行
+
+#### 前置要求
 
 - Python 3.10+
 - Node.js 18+ 和 npm
 - Ollama（本地运行，可选但推荐）
 
-### 安装
+#### 安装
 
-#### 方式一：使用安装脚本（推荐）
+##### 方式一：使用安装脚本（推荐）
 
 ```bash
 # Linux/Mac
@@ -150,6 +189,16 @@ anything-extract/
 │   ├── app/             # Next.js App Router
 │   ├── components/      # React 组件
 │   └── lib/             # 工具库
+├── docker/              # Docker 构建文件
+│   ├── Dockerfile.backend              # Python 后端镜像
+│   ├── Dockerfile.frontend             # Next.js 前端镜像
+│   ├── docker-entrypoint.sh            # 后端容器入口
+│   └── qanything-models-entrypoint.sh  # QAnything 模型服务入口
+├── docker-compose-linux.yaml  # Linux Docker Compose
+├── docker-compose-mac.yaml    # macOS Docker Compose
+├── docker-compose-win.yaml    # Windows Docker Compose
+├── docker_run.sh              # Docker 一键启动脚本
+├── .env.docker.example        # Docker 环境变量模板
 ├── docs/                # 文档
 │   └── ARCHITECTURE.md  # 系统架构文档
 └── storage/             # 数据存储
@@ -157,6 +206,80 @@ anything-extract/
     ├── lancedb/         # 向量数据库
     └── uploads/         # 上传文件
 ```
+
+## Docker 部署
+
+### 服务架构
+
+| 服务 | 描述 | 端口 | 启用方式 |
+|------|------|------|---------|
+| `backend` | Python FastAPI 后端 | 8888 | 默认 |
+| `frontend` | Next.js 生产前端 | 3001 | 默认 |
+| `qanything_models` | QAnything OCR + PDF 解析服务 | 7001, 9009 | `--with-models` |
+| `ollama` | Ollama LLM/Embedding 容器 | 11434 | `--with-ollama` |
+
+### 平台说明
+
+| 平台 | compose 文件 | Ollama 地址 | QAnything 镜像 |
+|------|------------|------------|----------------|
+| Linux | `docker-compose-linux.yaml` | `localhost:11434` | `qanything-linux:v1.5.1` |
+| macOS | `docker-compose-mac.yaml` | `host.docker.internal:11434` | `qanything-mac:v1.5.1` |
+| Windows | `docker-compose-win.yaml` | `host.docker.internal:11434` | `qanything-win:v1.5.1` |
+
+### 启动命令
+
+```bash
+# 一键启动（自动检测平台）
+./docker_run.sh
+
+# 含 QAnything OCR/PDF 模型服务
+./docker_run.sh --with-models
+
+# 完全容器化（含 Ollama 容器）
+./docker_run.sh --with-ollama
+
+# 全部服务
+./docker_run.sh --full
+
+# 后台运行
+./docker_run.sh -d
+
+# 重新构建镜像
+./docker_run.sh --build
+
+# 停止服务
+./docker_run.sh --down
+```
+
+或直接使用 Docker Compose：
+```bash
+# 基础启动
+docker compose -f docker-compose-win.yaml up
+
+# 启用模型服务
+docker compose -f docker-compose-win.yaml --profile models up
+
+# 全部服务
+docker compose -f docker-compose-win.yaml --profile full up
+```
+
+### 关于 OCR/PDF 模型服务
+
+`--with-models` 会启动 `xixihahaliu01/qanything-{platform}:v1.5.1` 容器，该镜像内置了所有 ML 模型（OCR、PDF 解析），存储于镜像内的 `/root/models`。
+
+**完全独立，无需 QAnything 项目**：OCR/PDF 服务代码已内置于本项目 `dependent_server/` 目录，Docker 容器会挂载该目录并建立软链：
+- `dependent_server/ocr_server/ocr_models` → `/root/models/ocr_models`
+- `dependent_server/pdf_parser_server/pdf_to_markdown/checkpoints` → `/root/models/pdf_models`
+
+然后仅启动 OCR(:7001) 和 PDF Parser(:9009) 两个服务供后端调用。
+
+### 数据持久化
+
+`storage/` 目录挂载到后端容器，重建容器不会丢失数据：
+- `storage/lancedb/` - 向量数据库
+- `storage/documents/` - 解析后的文档
+- `storage/uploads/` - 上传文件
+- `storage/database.db` - SQLite 数据库
 
 ## 文档
 

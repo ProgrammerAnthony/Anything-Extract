@@ -1,4 +1,4 @@
-﻿"""数据库模型与会话管理。"""
+"""数据库模型与会话管理。"""
 from __future__ import annotations
 
 from datetime import datetime
