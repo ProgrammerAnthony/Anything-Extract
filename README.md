@@ -47,7 +47,9 @@
 ./docker_run.sh --down
 ```
 
-首次启动时会自动构建镜像。访问地址：
+首次启动时会自动构建镜像。国内用户建议提前配置Docker镜像源加快拉取速度。
+
+访问地址：
 - 前端：http://localhost:3001
 - 后端 API：http://localhost:8888
 
