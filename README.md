@@ -102,7 +102,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cd ..
 
-# 3. 安装前端依赖
+# 2. 安装前端依赖
 cd frontend
 npm install
 cd ..
