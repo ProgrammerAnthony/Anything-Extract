@@ -107,7 +107,7 @@ cd frontend
 npm install
 cd ..
 
-# 4. 配置环境变量
+# 3. 配置环境变量
 cp backend/.env.example backend/.env
 # 编辑 backend/.env 配置 Ollama 等
 ```
