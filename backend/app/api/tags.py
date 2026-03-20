@@ -1,160 +1,59 @@
 """标签管理 API"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
-from core.database import get_db, TagConfig
+from core.database import get_db
 from app.models.schemas import (
     TagConfigCreate,
     TagConfigUpdate,
-    TagConfigResponse,
     ApiResponse
 )
-from datetime import datetime
+from app.services.tag_service import TagService
+from app.utils.error_handler import handle_not_found, wrap_api_response
 
 router = APIRouter()
 
 
 @router.get("", response_model=ApiResponse)
+@wrap_api_response()
 async def get_tags(db: Session = Depends(get_db)):
     """获取所有标签配置"""
-    import json
-    tags = db.query(TagConfig).all()
-    tags_list = []
-    for tag in tags:
-        tags_list.append({
-            "id": tag.id,
-            "name": tag.name,
-            "type": tag.type,
-            "description": tag.description,
-            "options": json.loads(tag.options) if tag.options else [],
-            "required": tag.required,
-            "created_at": tag.created_at,
-            "updated_at": tag.updated_at
-        })
-    return ApiResponse(
-        success=True,
-        data={"tags": tags_list}
-    )
+    return {"tags": TagService.get_tags(db)}
 
 
 @router.get("/{tag_id}", response_model=ApiResponse)
+@wrap_api_response()
+@handle_not_found(resource_name="标签")
 async def get_tag(tag_id: str, db: Session = Depends(get_db)):
     """获取单个标签配置"""
-    import json
-    tag = db.query(TagConfig).filter(TagConfig.id == tag_id).first()
-    if not tag:
-        raise HTTPException(status_code=404, detail="标签不存在")
-    tag_dict = {
-        "id": tag.id,
-        "name": tag.name,
-        "type": tag.type,
-        "description": tag.description,
-        "options": json.loads(tag.options) if tag.options else [],
-        "required": tag.required,
-        "created_at": tag.created_at,
-        "updated_at": tag.updated_at
-    }
-    return ApiResponse(
-        success=True,
-        data={"tag": tag_dict}
-    )
+    return {"tag": TagService.get_tag(db, tag_id)}
 
 
 @router.post("", response_model=ApiResponse)
+@wrap_api_response(message="标签创建成功")
 async def create_tag(tag_data: TagConfigCreate, db: Session = Depends(get_db)):
     """创建标签配置"""
-    import json
-    
-    tag = TagConfig(
-        name=tag_data.name,
-        type=tag_data.type.value,
-        description=tag_data.description,
-        options=json.dumps(tag_data.options or []),
-        required=tag_data.required
-    )
-    db.add(tag)
-    db.commit()
-    db.refresh(tag)
-    
-    # 转换为响应格式
-    tag_dict = {
-        "id": tag.id,
-        "name": tag.name,
-        "type": tag.type,
-        "description": tag.description,
-        "options": json.loads(tag.options) if tag.options else [],
-        "required": tag.required,
-        "created_at": tag.created_at,
-        "updated_at": tag.updated_at
-    }
-    
-    return ApiResponse(
-        success=True,
-        data={"tag": tag_dict},
-        message="标签创建成功"
-    )
+    return {"tag": TagService.create_tag(db, tag_data)}
 
 
 @router.put("/{tag_id}", response_model=ApiResponse)
+@wrap_api_response(message="标签更新成功")
+@handle_not_found(resource_name="标签")
 async def update_tag(
     tag_id: str,
     tag_data: TagConfigUpdate,
     db: Session = Depends(get_db)
 ):
     """更新标签配置"""
-    import json
-    
-    tag = db.query(TagConfig).filter(TagConfig.id == tag_id).first()
-    if not tag:
-        raise HTTPException(status_code=404, detail="标签不存在")
-    
-    if tag_data.name is not None:
-        tag.name = tag_data.name
-    if tag_data.type is not None:
-        tag.type = tag_data.type.value
-    if tag_data.description is not None:
-        tag.description = tag_data.description
-    if tag_data.options is not None:
-        tag.options = json.dumps(tag_data.options)
-    if tag_data.required is not None:
-        tag.required = tag_data.required
-    
-    tag.updated_at = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(tag)
-    
-    tag_dict = {
-        "id": tag.id,
-        "name": tag.name,
-        "type": tag.type,
-        "description": tag.description,
-        "options": json.loads(tag.options) if tag.options else [],
-        "required": tag.required,
-        "created_at": tag.created_at,
-        "updated_at": tag.updated_at
-    }
-    
-    return ApiResponse(
-        success=True,
-        data={"tag": tag_dict},
-        message="标签更新成功"
-    )
+    return {"tag": TagService.update_tag(db, tag_id, tag_data)}
 
 
 @router.delete("/{tag_id}", response_model=ApiResponse)
+@wrap_api_response(message="标签已删除")
 async def delete_tag(tag_id: str, db: Session = Depends(get_db)):
     """删除标签配置"""
-    tag = db.query(TagConfig).filter(TagConfig.id == tag_id).first()
-    if not tag:
+    success = TagService.delete_tag(db, tag_id)
+    if not success:
         raise HTTPException(status_code=404, detail="标签不存在")
-    
-    db.delete(tag)
-    db.commit()
-    
-    return ApiResponse(
-        success=True,
-        message="标签已删除"
-    )
+    return {}
 

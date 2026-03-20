@@ -47,7 +47,9 @@
 ./docker_run.sh --down
 ```
 
-首次启动时会自动构建镜像。访问地址：
+首次启动时会自动构建镜像。国内用户建议提前配置Docker镜像源加快拉取速度。
+
+访问地址：
 - 前端：http://localhost:3001
 - 后端 API：http://localhost:8888
 
@@ -100,12 +102,12 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cd ..
 
-# 3. 安装前端依赖
+# 2. 安装前端依赖
 cd frontend
 npm install
 cd ..
 
-# 4. 配置环境变量
+# 3. 配置环境变量
 cp backend/.env.example backend/.env
 # 编辑 backend/.env 配置 Ollama 等
 ```
@@ -284,6 +286,66 @@ docker compose -f docker-compose-win.yaml --profile full up
 ## 文档
 
 - [系统架构文档](./docs/ARCHITECTURE.md) - 完整的系统架构、API 接口、安装和使用指南
+
+## 常见问题（FAQ）
+
+### 1. 启动后访问 http://localhost:3001 打不开怎么办？
+- 检查端口3001是否被占用：`lsof -i:3001`
+- 查看容器/服务运行状态：`docker ps` 或检查后端/前端日志
+- 确认防火墙没有拦截3001和8888端口
+
+### 2. Ollama连接失败怎么办？
+- 确认Ollama服务已启动：`ollama serve`
+- 检查Ollama地址配置是否正确：`OLLAMA_BASE_URL=http://localhost:11434`
+- 如果是Docker部署，宿主机Ollama需要监听0.0.0.0：`OLLAMA_HOST=0.0.0.0 ollama serve`
+
+### 3. 模型下载慢怎么办？
+- 国内用户建议配置Ollama镜像源：
+  ```bash
+  export OLLAMA_MODELS=https://ollama.aigem.ai
+  ollama pull phi3:mini
+  ```
+- 或手动下载模型文件放到Ollama模型目录
+
+### 4. 支持哪些文档格式？
+- 目前支持：PDF、DOCX、TXT、Markdown、CSV、JSON、XLSX、PPTX、EML、图片（JPG/PNG）
+- 更多格式正在持续扩展中
+
+### 5. 文档上传后一直处于"处理中"状态？
+- 大文件解析需要时间，请耐心等待
+- 查看后端日志确认是否有报错
+- 检查Ollama服务是否正常运行
+- 单文档建议不要超过100MB
+
+### 6. 提取结果不准确怎么办？
+- 优化标签描述，尽可能详细说明提取要求
+- 调整模型参数，使用更大的模型（如llama3 8B）
+- 开启RAG增强和Rerank功能，提升检索准确性
+- 增加Prompt示例，指导LLM输出格式
+
+### 7. 数据安全吗？
+- 所有数据都存储在本地，不会上传到任何第三方服务器
+- 支持完全离线运行，无需联网即可使用
+- 敏感文档建议部署在内部网络环境
+
+### 8. 可以同时处理多少文档？
+- 取决于服务器配置，默认配置支持同时处理10个文档
+- 高并发场景建议增加服务器资源，配置分布式队列
+- 批量处理建议使用队列模式，避免同时上传大量文件
+
+### 9. 如何备份数据？
+- 备份 `storage/` 目录下所有文件，包含向量数据库和原始文档
+- 定期备份SQLite数据库文件：`storage/database.db`
+- 导出重要的标签配置和提取结果
+
+### 10. 如何贡献代码？
+- Fork项目到自己的仓库
+- 创建功能分支：`git checkout -b feature/your-feature`
+- 提交代码：`git commit -am 'add some feature'`
+- 推送到分支：`git push origin feature/your-feature`
+- 提交Pull Request
+
+---
 
 ## 贡献
 
