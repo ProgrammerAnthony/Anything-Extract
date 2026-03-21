@@ -1,10 +1,10 @@
 # AnythingExtract
 
-一个专注于文档结构化提取的本地化工具，基于 LangChain 高级 RAG 方案，支持 PDF 和 Word 文档的智能信息抽取。
+一个专注于文档结构化提取的本地化工具，基于 LangChain 高级 RAG 方案，支持 PDF、Word 等10+种文档的智能信息抽取。
 
 ## 特性
 
-- 📄 **多格式支持**：支持 PDF 和 Word 文档解析
+- 📄 **多格式支持**：支持 PDF、Word、图片等10+种文档格式解析
 - 🏷️ **灵活标签配置**：支持单选、多选、填空三种标签类型
 - 🔍 **高级检索方案**：集成 Multi-Query Retrieval、HyDE、ParentDocumentRetriever、RERANK、ES BM25 等
 - 🤖 **本地化部署**：默认使用 Ollama + LanceDB，完全本地运行
