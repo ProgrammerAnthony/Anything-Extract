@@ -7,6 +7,7 @@ from app.models.schemas import (
     SystemConfigUpdate,
     ApiResponse
 )
+from app.utils.error_handler import wrap_api_response
 from services.runtime_config_service import runtime_config_service
 
 router = APIRouter()
@@ -48,12 +49,14 @@ def _build_system_config_response() -> SystemConfigResponse:
 
 
 @router.get("/config", response_model=ApiResponse)
+@wrap_api_response()
 async def get_config():
     """获取系统配置"""
-    return ApiResponse(success=True, data=_build_system_config_response())
+    return _build_system_config_response()
 
 
 @router.put("/config", response_model=ApiResponse)
+@wrap_api_response(message="配置更新成功（解析配置即时生效）")
 async def update_config(config: SystemConfigUpdate):
     """更新系统配置"""
     try:
@@ -62,9 +65,5 @@ async def update_config(config: SystemConfigUpdate):
     except ValueError as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return ApiResponse(
-        success=True,
-        data=_build_system_config_response(),
-        message="配置更新成功（解析配置即时生效）"
-    )
+    return _build_system_config_response()
 

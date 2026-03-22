@@ -1,7 +1,5 @@
 from fastapi import HTTPException
 from functools import wraps
-from sqlalchemy.orm import Session
-
 from app.models.schemas import ApiResponse
 
 def handle_not_found(resource_name: str = "资源"):
