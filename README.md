@@ -1,4 +1,4 @@
-# AnythingExtract
+# Anything-Extract
 
 一个专注于文档结构化提取的本地化工具，基于 LangChain 高级 RAG 方案，支持 PDF、Word 等10+种文档的智能信息抽取。
 
