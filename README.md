@@ -206,7 +206,8 @@ anything-extract/
 └── storage/             # 数据存储
     ├── documents/       # 解析后的文档
     ├── lancedb/         # 向量数据库
-    └── uploads/         # 上传文件
+    ├── uploads/         # 上传文件
+    └── database.db      # SQLite 数据库
 ```
 
 ## Docker 部署
