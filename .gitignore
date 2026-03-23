@@ -28,6 +28,7 @@ yarn-error.log*
 
 # Storage
 storage/
+# 本地SQLite数据库文件
 *.db
 *.sqlite
 
