@@ -47,4 +47,5 @@ Thumbs.db
 *.pyc
 *.pyo
 
+# 日志文件目录
 logs/
