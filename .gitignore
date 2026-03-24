@@ -44,7 +44,7 @@ storage/
 .DS_Store
 Thumbs.db
 
-# Build
+# Python编译缓存文件
 *.pyc
 *.pyo
 
