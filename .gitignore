@@ -27,6 +27,7 @@ yarn-error.log*
 .env*.local
 
 # Storage
+# 数据存储目录（向量数据库、上传文件、解析结果等）
 storage/
 # 本地SQLite数据库文件
 *.db
