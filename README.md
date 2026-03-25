@@ -303,7 +303,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 ### 3. 模型下载慢怎么办？
 - 国内用户建议配置Ollama镜像源：
   ```bash
-  export OLLAMA_MODELS=https://ollama.aigem.ai
+  export OLLAMA_REGISTRY=https://ollama.aigem.ai
   ollama pull phi3:mini
   ```
 - 或手动下载模型文件放到Ollama模型目录
