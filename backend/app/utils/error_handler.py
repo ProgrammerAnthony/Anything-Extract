@@ -3,7 +3,7 @@ from functools import wraps
 from app.models.schemas import ApiResponse
 
 def handle_not_found(resource_name: str = "资源"):
-    """统一处理资源不存在的错误装饰器"""
+    """统一处理资源不存在的错误装饰器，参数resource_name指定资源名称用于错误提示"""
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
