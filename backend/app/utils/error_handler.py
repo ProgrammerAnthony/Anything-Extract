@@ -15,7 +15,7 @@ def handle_not_found(resource_name: str = "资源"):
     return decorator
 
 def wrap_api_response(message: str = None):
-    """统一包装API响应格式装饰器"""
+    """统一包装API响应格式装饰器，参数message为可选自定义成功提示信息"""
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
