@@ -301,7 +301,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 - 如果是Docker部署，宿主机Ollama需要监听0.0.0.0：`OLLAMA_HOST=0.0.0.0 ollama serve`
 
 ### 3. 模型下载慢怎么办？
-- 国内用户建议配置Ollama镜像源：
+- 国内用户建议配置Ollama 镜像源：
   ```bash
   export OLLAMA_REGISTRY=https://ollama.aigem.ai
   ollama pull phi3:mini
