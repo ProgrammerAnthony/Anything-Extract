@@ -201,6 +201,7 @@ anything-extract/
 ├── docker-compose-win.yaml    # Windows Docker Compose
 ├── docker_run.sh              # Docker 一键启动脚本
 ├── .env.docker.example        # Docker 环境变量模板
+├── dependent_server/    # 第三方依赖服务（OCR/PDF 解析）
 ├── docs/                # 文档
 │   └── ARCHITECTURE.md  # 系统架构文档
 └── storage/             # 数据存储
