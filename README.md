@@ -297,7 +297,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 - 确认防火墙没有拦截3001和8888端口
 
 ### 2. Ollama 连接失败怎么办？
-- 确认Ollama服务已启动：`ollama serve`
+- 确认 Ollama 服务已启动：`ollama serve`
 - 检查Ollama地址配置是否正确：`OLLAMA_BASE_URL=http://localhost:11434`
 - 如果是Docker部署，宿主机Ollama需要监听0.0.0.0：`OLLAMA_HOST=0.0.0.0 ollama serve`
 
