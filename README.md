@@ -316,7 +316,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 ### 5. 文档上传后一直处于"处理中"状态？
 - 大文件解析需要时间，请耐心等待
 - 查看后端日志确认是否有报错
-- 检查Ollama服务是否正常运行
+- 检查 Ollama 服务是否正常运行
 - 单文档建议不要超过100MB
 
 ### 6. 提取结果不准确怎么办？
