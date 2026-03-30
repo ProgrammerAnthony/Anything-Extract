@@ -307,7 +307,7 @@ docker compose -f docker-compose-win.yaml --profile full up
   export OLLAMA_REGISTRY=https://ollama.aigem.ai
   ollama pull phi3:mini
   ```
-- 或手动下载模型文件放到Ollama模型目录
+- 或手动下载模型文件放到 Ollama 模型目录
 
 ### 4. 支持哪些文档格式？
 - 目前支持：PDF、DOCX、TXT、Markdown、CSV、JSON、XLSX、PPTX、EML、图片（JPG/PNG）
