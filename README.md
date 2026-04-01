@@ -299,7 +299,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 ### 2. Ollama 连接失败怎么办？
 - 确认 Ollama 服务已启动：`ollama serve`
 - 检查 Ollama 地址配置是否正确：`OLLAMA_BASE_URL=http://localhost:11434`
-- 如果是Docker部署，宿主机Ollama需要监听0.0.0.0：`OLLAMA_HOST=0.0.0.0 ollama serve`
+- 如果是Docker部署，宿主机Ollama需要监听0.0.0.0: `OLLAMA_HOST=0.0.0.0 ollama serve`
 
 ### 3. 模型下载慢怎么办？
 - 国内用户建议配置 Ollama 镜像源：
