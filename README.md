@@ -337,7 +337,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 
 ### 9. 如何备份数据？
 - 备份 `storage/` 目录下所有文件，包含向量数据库和原始文档
-- 定期备份SQLite数据库文件：`storage/database.db`
+- 定期备份 SQLite 数据库文件：`storage/database.db`
 - 导出重要的标签配置和提取结果
 
 ### 10. 如何贡献代码？
