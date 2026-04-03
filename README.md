@@ -317,7 +317,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 - 大文件解析需要时间，请耐心等待
 - 查看后端日志确认是否有报错
 - 检查 Ollama 服务是否正常运行
-- 单文档建议不要超过100MB。
+- 单文档建议不要超过100MB
 
 ### 6. 提取结果不准确怎么办？
 - 优化标签描述，尽可能详细说明提取要求
