@@ -321,7 +321,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 
 ### 6. 提取结果不准确怎么办？
 - 优化标签描述，尽可能详细说明提取要求
-- 调整模型参数，使用更大的模型（如llama3 8B）
+- 调整模型参数，使用更大的模型（如 Llama 3 8B）
 - 开启RAG增强和Rerank功能，提升检索准确性
 - 增加Prompt示例，指导LLM输出格式
 
