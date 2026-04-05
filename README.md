@@ -166,7 +166,7 @@ LANCE_DB_PATH=./storage/lancedb
 
 **模型选择建议：**
 - **CPU 部署**：使用 `phi3:mini` + `nomic-embed-text`（默认配置）
-- **极轻量需求**：使用 `llama3.2:1b` + `all-minilm`
+- **极轻量需求**：使用 `Llama 3.2:1b` + `all-minilm`
 - **性能优先**：使用 `llama2` 或 `mistral` + `nomic-embed-text`
 
 ## 使用流程
