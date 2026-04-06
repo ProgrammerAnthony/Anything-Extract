@@ -161,7 +161,7 @@ LANCE_DB_PATH=./storage/lancedb
 - `bge-small` (33MB) - 轻量且效果不错
 
 **高性能模型（需要更多资源）：**
-- LLM: `llama2` (7B, ~4GB), `mistral` (7B, ~4GB)
+- LLM: `Llama 2` (7B, ~4GB), `Mistral` (7B, ~4GB)
 - 需要更多内存和计算资源
 
 **模型选择建议：**
