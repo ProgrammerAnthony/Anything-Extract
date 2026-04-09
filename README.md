@@ -151,7 +151,7 @@ LANCE_DB_PATH=./storage/lancedb
 
 **LLM 模型（用于信息提取）：**
 - `phi3:mini` (3.8B, ~2.2GB) - **推荐**，平衡性能和速度
-- `Llama 3.2:1b` (1B, ~600MB) - 超轻量，极速但效果稍差
+- `Llama 3.2:1B` (1B, ~600MB) - 超轻量，极速但效果稍差
 - `Qwen 2:0.5B` (0.5B, ~300MB) - 极轻量，最快但效果一般
 - `tinyllama` (1.1B, ~650MB) - 超轻量
 
@@ -166,7 +166,7 @@ LANCE_DB_PATH=./storage/lancedb
 
 **模型选择建议：**
 - **CPU 部署**：使用 `phi3:mini` + `nomic-embed-text`（默认配置）
-- **极轻量需求**：使用 `Llama 3.2:1b` + `all-minilm`
+- **极轻量需求**：使用 `Llama 3.2:1B` + `all-minilm`
 - **性能优先**：使用 `Llama 2` 或 `Mistral` + `nomic-embed-text`
 
 ## 使用流程
