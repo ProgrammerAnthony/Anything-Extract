@@ -292,9 +292,9 @@ docker compose -f docker-compose-win.yaml --profile full up
 ## 常见问题（FAQ）
 
 ### 1. 启动后访问 http://localhost:3001 打不开怎么办？
-- 检查端口3001是否被占用：`lsof -i:3001`
+- 检查端口 3001 是否被占用：`lsof -i:3001`
 - 查看容器/服务运行状态：`docker ps` 或检查后端/前端日志
-- 确认防火墙没有拦截3001和8888端口
+- 确认防火墙没有拦截 3001 和 8888 端口
 
 ### 2. Ollama 连接失败怎么办？
 - 确认 Ollama 服务已启动：`ollama serve`
