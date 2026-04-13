@@ -25,7 +25,7 @@
 
 ### 方式一：Docker 部署（推荐）
 
-前置要求：[Docker Desktop](https://www.docker.com/products/docker-desktop) >= 4.26 (Windows/Mac) 或 Docker + Docker Compose v2 (Linux)
+前置要求：[Docker Desktop](https://www.docker.com/products/docker-desktop) >= 4.26 (Windows/Mac) 或 Docker 引擎 + Docker Compose v2 (Linux)
 
 ```bash
 # 仅启动后端 + 前端（Ollama 运行在宿主机）
