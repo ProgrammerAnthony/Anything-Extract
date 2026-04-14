@@ -343,7 +343,7 @@ docker compose -f docker-compose-win.yaml --profile full up
 ### 10. 如何贡献代码？
 - Fork项目到自己的仓库
 - 创建功能分支：`git checkout -b feature/your-feature`
-- 提交代码：`git commit -am 'add some feature'`
+- 提交代码：`git commit -am 'feat: add some new feature'`
 - 推送到分支：`git push origin feature/your-feature`
 - 提交Pull Request
 
